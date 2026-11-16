@@ -244,6 +244,12 @@ function Orders({ pricing }: { pricing: Pricing | null }) {
 
 function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Pricing | null; onDone: () => void }) {
   const [open, setOpen] = useState(false);
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    if (!o.claim_expires_at) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [o.claim_expires_at]);
   const step = STEPS.indexOf(o.status);
   const purpose: "check" | "conversion" | null = !o.check_paid
     ? "check"
@@ -285,6 +291,35 @@ function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Prici
               URL.revokeObjectURL(url);
             } catch (e) { window.alert(errMsg(e)); }
           }}>Télécharger le rapport automatique (PDF)</button>
+        </div>
+      )}
+      {o.claim_key && (
+        <div className="auto-report-notice claim-key-card">
+          <strong>Votre clé de récupération</strong>
+          <p className="muted">Conservez cette clé : vous pourrez la saisir dans votre Studio ExcelPro pour récupérer votre application.</p>
+          <div className="claim-key-value"><code>{o.claim_key}</code></div>
+          <div className="inline">
+            <button className="ghost" type="button" onClick={() => {
+              navigator.clipboard.writeText(o.claim_key!).then(
+                () => window.alert("Clé copiée."),
+                () => window.alert("Copie impossible. Sélectionnez la clé pour la copier.")
+              );
+            }}>Copier la clé</button>
+            <button className="ghost" type="button" onClick={() => {
+              const blob = new Blob([`ExcelPro — Clé de récupération\\nCommande : #${o.id}\\nApplication : ${o.app_name}\\nClé : ${o.claim_key}\\n`], { type: "text/plain;charset=utf-8" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a"); a.href = url; a.download = `excelpro-cle-${o.id}.txt`; a.click();
+              URL.revokeObjectURL(url);
+            }}>Télécharger la clé (.txt)</button>
+          </div>
+          {o.status === "ready" && o.claim_expires_at ? (() => {
+            const remaining = new Date(o.claim_expires_at).getTime() - clock;
+            return remaining > 0
+              ? <p className="ok">Application disponible — retrait avant le {new Date(o.claim_expires_at).toLocaleString("fr-FR")}. Temps restant : {Math.floor(remaining / 86_400_000)} j {Math.floor((remaining % 86_400_000) / 3_600_000)} h.</p>
+              : <p className="error">Le délai de retrait de 5 jours est expiré. Contactez l'équipe ExcelPro.</p>;
+          })() : (
+            <p className="muted">Votre clé est créée. Elle sera activée lorsque votre application sera prête. Les 5 jours de retrait commenceront à cette date.</p>
+          )}
         </div>
       )}
       {o.check_report && <ReportView report={o.check_report} />}
@@ -568,7 +603,7 @@ function Admin() {
               </div>
             );
           })}
-          {o.claim_key && <div className="ok">Clé de récupération : <code>{o.claim_key}</code></div>}
+          {o.claim_key && <div className="ok">Clé de récupération : <code>{o.claim_key}</code>{o.claim_expires_at ? ` · retrait jusqu'au ${new Date(o.claim_expires_at).toLocaleString("fr-FR")}` : " · délai non démarré"}</div>}
         </div>
       ))}
     </section>

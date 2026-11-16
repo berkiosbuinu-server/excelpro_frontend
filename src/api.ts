@@ -52,6 +52,7 @@ export type Order = {
   created_at: string;
   analysis: Analysis | null;
   claim_key: string | null;
+  claim_expires_at: string | null;
   user_email: string | null;
   deliveries: Delivery[];
   payments: Payment[];
