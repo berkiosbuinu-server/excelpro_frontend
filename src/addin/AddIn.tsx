@@ -50,7 +50,7 @@ async function pull(importId: string, t: DataTable) {
 /** Lit la feuille de travail et l'instantané ; calcule les changements à envoyer. */
 async function readChanges(importId: string, t: DataTable, withDeletes: boolean) {
   const n = columnsOf(t).length;
-  const { cur, snapVals } = await Excel.run(async (ctx: any) => {
+  const { cur, snapVals }: { cur: unknown[][]; snapVals: unknown[][] } = await Excel.run(async (ctx: any) => {
     const ws = ctx.workbook.worksheets.getItemOrNullObject(sheetName(t.table)), ss = ctx.workbook.worksheets.getItemOrNullObject(snapName(t.table)); await ctx.sync();
     if (ws.isNullObject || ss.isNullObject) throw new Error("Cette table n'a pas encore été chargée dans ce classeur : cliquez d'abord sur « Charger depuis le serveur ».");
     const a = ws.getUsedRange(true); a.load("values"); const b = ss.getUsedRange(true); b.load("values"); await ctx.sync();
@@ -59,9 +59,9 @@ async function readChanges(importId: string, t: DataTable, withDeletes: boolean)
   if (String(snapVals[0]?.[1]) !== importId || String(snapVals[0]?.[3]) !== t.table) throw new Error("La feuille provient d'une autre importation : rechargez-la depuis le serveur.");
   const header = (cur[0] ?? []).slice(0, n).map(String), expected = columnsOf(t).map((c) => c.name);
   if (header.join("|") !== expected.join("|")) throw new Error("Les en-têtes de la feuille ont été modifiés. Ne renommez, ne déplacez et ne supprimez aucune colonne (rechargez pour repartir d'une feuille propre).");
-  const snapRows = snapVals.slice(2);
-  const snapshot: Sheet = { header: expected, types: columnsOf(t).map((c) => c.type), values: snapRows.map((r) => r.slice(0, n) as never[]), versions: snapRows.map((r) => String(r[n] ?? "1")) };
-  return diffSheet(t, snapshot, cur.slice(1).map((r) => r.slice(0, n)), { withDeletes });
+  const snapRows: unknown[][] = (snapVals as unknown[][]).slice(2);
+  const snapshot: Sheet = { header: expected, types: columnsOf(t).map((c) => c.type), values: snapRows.map((r: unknown[]) => r.slice(0, n) as never[]), versions: snapRows.map((r: unknown[]) => String(r[n] ?? "1")) };
+  return diffSheet(t, snapshot, cur.slice(1).map((r: unknown[]) => r.slice(0, n)), { withDeletes });
 }
 
 const describe = (c: Change) => c.kind === "insert" ? `➕ ligne ${c.line}` : c.kind === "update" ? `✏️ ${c.key} (${Object.keys(c.values).join(", ")})` : `🗑️ ${c.key}`;
