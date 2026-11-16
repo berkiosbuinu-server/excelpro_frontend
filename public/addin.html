@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ExcelPro — Hébergement</title>
+    <!-- Office.js d'abord, puis les polyfills (IE11), la configuration et le volet -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/core-js-bundle@3.37.1/minified.js"></script>
+    <script src="addin-config.js"></script>
+    <style>
+      body { font: 14px/1.4 "Segoe UI", Arial, sans-serif; margin: 0; padding: 12px; color: #17211c; background: #fff; }
+      h2 { margin: 0 0 8px; font-size: 18px; }
+      label { display: block; margin: 8px 0; }
+      label.chk { display: block; }
+      input[type=email], input[type=password], input[type=url], select { display: block; width: 100%; box-sizing: border-box; padding: 6px; margin-top: 3px; }
+      button { padding: 6px 12px; margin: 4px 4px 4px 0; border: 1px solid #b9c7be; background: #f4f7f5; cursor: pointer; }
+      button.primary { background: #0f7a47; color: #fff; border-color: #0f7a47; }
+      button[disabled] { opacity: .5; cursor: default; }
+      .row { display: flex; justify-content: space-between; align-items: center; }
+      .muted { color: #647067; } .err { color: #b42318; white-space: pre-wrap; } .ok { color: #0f7a47; font-weight: 600; } .warn { color: #b54708; }
+      .card { border: 1px solid #dfe7e2; border-radius: 8px; padding: 10px; margin-top: 10px; }
+      .card ul { max-height: 160px; overflow: auto; padding-left: 18px; }
+      hr { border: 0; border-top: 1px solid #dfe7e2; margin: 12px 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"><p class="muted">Chargement…</p></div>
+    <script src="addin.js"></script>
+  </body>
+</html>

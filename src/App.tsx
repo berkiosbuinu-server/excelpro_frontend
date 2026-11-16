@@ -134,7 +134,7 @@ function Home({ pricing, onStart, goSection }: { pricing: Pricing | null; onStar
       <section className="how">
         {[
           ["1", "Envoyez votre classeur", "Déposez votre fichier .xlsx ou .xlsm. L'analyse est automatique."],
-          ["2", "Recevez le rapport", "Nos experts testent macros, formules et UserForms avant toute conversion."],
+          ["2", "Recevez deux rapports", "Après paiement, recevez immédiatement le rapport automatique, puis le rapport final rédigé par nos experts après leurs tests."],
           ["3", "Récupérez votre application", "Une clé de récupération vous donne accès à vos livrables, pour chaque plateforme."],
         ].map(([n, t, d]) => (
           <div className="step" key={n}><span className="num-badge">{n}</span><h3>{t}</h3><p className="muted">{d}</p></div>
@@ -158,8 +158,7 @@ function Home({ pricing, onStart, goSection }: { pricing: Pricing | null; onStar
             <div>
               <h3>Vérification de votre fichier avant conversion</h3>
               <p>
-                Nos experts ouvrent et lancent votre application sur leurs machines : macros, VBA, formules, UserForms.
-                Vous recevez un rapport détaillé <strong>avant</strong> de payer la conversion.
+                Le rapport automatique ExcelPro est disponible dès la confirmation du paiement. Nos experts poursuivent ensuite les tests des macros, du VBA, des formules et des UserForms, puis vous transmettent leur rapport final avant la conversion.
               </p>
               <ul className="rates">
                 <li><strong>{pricing.check_fee_rates.per_interface} $</strong> par interface (feuille ou UserForm)</li>
@@ -274,6 +273,20 @@ function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Prici
           {p.purpose === "check" ? "Vérification" : "Conversion"} — {PROVIDERS[p.provider] ?? p.provider} : {PAY_STATUS[p.status]}{p.reference ? ` (${p.reference})` : ""}
         </div>
       ))}
+      {o.check_paid && (
+        <div className="auto-report-notice">
+          <strong>Rapport de vérification automatique disponible</strong>
+          <p className="muted">Ce rapport est généré par le moteur ExcelPro. Il s'agit d'une première analyse technique, en attendant le rapport final des experts.</p>
+          <button className="ghost" onClick={async () => {
+            try {
+              const blob = await api.autoReportBlob(o.id);
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a"); a.href = url; a.download = `rapport-automatique-${o.id}.pdf`; a.click();
+              URL.revokeObjectURL(url);
+            } catch (e) { window.alert(errMsg(e)); }
+          }}>Télécharger le rapport automatique (PDF)</button>
+        </div>
+      )}
       {o.check_report && <ReportView report={o.check_report} />}
       {purpose === null && o.check_report?.verdict === "not_convertible" && !o.paid && (
         <div className="warn-box">Ce fichier n'est pas convertible en l'état : contactez-nous pour étudier les adaptations possibles.</div>
@@ -282,7 +295,7 @@ function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Prici
         <div className="order-pay">
           <div>
             <strong>{purpose === "check" ? "Frais de vérification" : "Conversion"} : {money(amount)}</strong>
-            {purpose === "check" && <div className="muted">Nos experts testeront votre fichier, puis vous recevrez le rapport avant toute conversion.</div>}
+            {purpose === "check" && <div className="muted">Le rapport automatique sera disponible dès confirmation du paiement. Le rapport final des experts suivra après leurs tests.</div>}
           </div>
           <button className="primary big pay-btn" onClick={() => setOpen(true)}>Payer {money(amount)}</button>
         </div>
@@ -295,7 +308,7 @@ function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Prici
 function ReportView({ report }: { report: CheckReport }) {
   return (
     <details className="report" open>
-      <summary><strong>Rapport de vérification</strong> — {VERDICTS[report.verdict]}</summary>
+      <summary><strong>Rapport final des experts</strong> — {VERDICTS[report.verdict]}</summary>
       {report.tested_on && <div className="muted">Testé sur : {report.tested_on}</div>}
       <p>{report.summary}</p>
       <div className="stats">
@@ -531,7 +544,21 @@ function Admin() {
             {o.status === "in_progress" && <button className="primary" onClick={() => act(o.id, "ready")}>Marquer prête + clé</button>}
           </div>
           {o.status === "checking" && <ReportForm order={o} onDone={reload} />}
-          {o.check_report && <ReportView report={o.check_report} />}
+          {o.check_paid && (
+        <div className="auto-report-notice">
+          <strong>Rapport de vérification automatique disponible</strong>
+          <p className="muted">Ce rapport est généré par le moteur ExcelPro. Il s'agit d'une première analyse technique, en attendant le rapport final des experts.</p>
+          <button className="ghost" onClick={async () => {
+            try {
+              const blob = await api.autoReportBlob(o.id);
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a"); a.href = url; a.download = `rapport-automatique-${o.id}.pdf`; a.click();
+              URL.revokeObjectURL(url);
+            } catch (e) { window.alert(errMsg(e)); }
+          }}>Télécharger le rapport automatique (PDF)</button>
+        </div>
+      )}
+      {o.check_report && <ReportView report={o.check_report} />}
           {o.platforms.map((p) => {
             const d = o.deliveries.find((x) => x.platform === p);
             return (

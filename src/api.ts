@@ -156,6 +156,17 @@ export const api = {
   hostingToken: () => request<{ token: string; expires_at: number; server_url: string; tenant: string }>("/hosting/token", { method: "POST" }),
   createOrder: (form: FormData) => request<Order>("/orders", { method: "POST", body: form }),
   myOrders: () => request<Order[]>("/orders"),
+  autoReportBlob: async (orderId: number) => {
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const res = await fetch(BASE + `/orders/${orderId}/auto-report.pdf`, { headers });
+    if (!res.ok) {
+      let message = `Erreur ${res.status}`;
+      try { const data = await res.json(); message = data.detail ?? message; } catch { /* ignore */ }
+      throw new Error(message);
+    }
+    return res.blob();
+  },
   previewOpen: (file: File) => {
     const f = new FormData();
     f.append("file", file);

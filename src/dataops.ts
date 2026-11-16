@@ -99,6 +99,6 @@ export function diffSheet(t: DataTable, snapshot: Sheet, current: unknown[][], {
     }
     if (Object.keys(diff).length) changes.push({ kind: "update", line, key, expectedVersion: old.version, values: diff });
   });
-  if (withDeletes) for (const [key, o] of snap) if (!seen.has(key)) changes.push({ kind: "delete", key, expectedVersion: o.version });
+  if (withDeletes) snap.forEach((o, key) => { if (!seen.has(key)) changes.push({ kind: "delete", key, expectedVersion: o.version }); });
   return { changes, errors };
 }
