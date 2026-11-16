@@ -1,4 +1,4 @@
-const BASE: string = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const BASE: string = import.meta.env.VITE_API_URL || "https://excelpro-api.berkios.online";
 
 export type Pricing = {
   platforms: Record<string, number>;
