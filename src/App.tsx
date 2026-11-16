@@ -5,7 +5,7 @@ import {
 } from "./api";
 import { PayModal } from "./PayModal";
 import { Runner } from "./Runner";
-import Hosting  from "./Hosting";
+import { Hosting } from "./Hosting";
 import { ChatWidget } from "./Chat";
 import { DevicesShowcase, Logo, PlatformBadge, PlatformIcon, PLATFORM_COLORS } from "./visuals";
 

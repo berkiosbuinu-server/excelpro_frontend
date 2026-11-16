@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { hosting, resetHostingSession, STATE_LABEL, type Cap, type ImportRow, type ImportView } from "./hosting";
+import { hosting, resetHostingSession, SENSITIVE_LABEL, STATE_LABEL, withSensitiveMode, type Cap, type ImportRow, type ImportView, type SensitiveMode } from "./hosting";
 import { api } from "./api";
+import { DataBrowser } from "./DataBrowser";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Erreur inconnue");
 const LABELS: Record<string, string> = {
@@ -77,6 +78,7 @@ export function Hosting() {
               <li key={t.name}><b>{t.name}</b> — {t.dataRowCount} ligne(s), {t.fields.length} colonne(s){t.fields.some((f) => f.sensitive) ? " · contient des champs sensibles (protégés)" : ""}</li>
             ))}
           </ul>
+          <SensitiveFields view={cur} disabled={busy !== "" || ["running", "completed"].includes(cur.state)} onChange={(sid, key, mode) => act("sens", () => hosting.update(cur.id, withSensitiveMode(cur.options, sid, key, mode)))} />
           {cur.plan.warnings.slice(0, 5).map((w, i) => <p key={i} className="warn">{w}</p>)}
           {cur.progress && cur.state === "running" && <p className="muted">Importation : {cur.progress.table} ({cur.progress.done}/{cur.progress.total})</p>}
           {cur.dryRun && <Summary title="Simulation (rien n'a été écrit)" s={cur.dryRun.summary} />}
@@ -95,6 +97,8 @@ export function Hosting() {
           )}
         </div>
       )}
+
+      {cur?.state === "completed" && <DataBrowser importId={cur.id} />}
 
       <h3 style={{ marginTop: 24 }}>Mes importations</h3>
       {rows.length === 0 && <p className="muted">Aucune importation pour le moment.</p>}
@@ -123,4 +127,28 @@ function Summary({ title, s }: { title: string; s: Record<string, number | strin
   );
 }
 
-export default Hosting;
+/** Colonnes détectées comme sensibles (mot de passe, jeton, secret…) : par défaut leurs lignes sont rejetées ; on choisit ici le traitement. */
+function SensitiveFields({ view, disabled, onChange }: { view: ImportView; disabled: boolean; onChange: (sourceId: string, key: string, mode: SensitiveMode) => void }) {
+  const rows = view.plan.tables.flatMap((t, ti) => t.fields.flatMap((f, fi) => {
+    if (!f.sensitive) return [];
+    const key = view.analysis.tables[ti]?.fields[fi]?.field ?? f.name;
+    const mode: SensitiveMode = view.options.mapping[t.sourceId]?.fields?.[key]?.sensitiveMode ?? f.sensitiveMode ?? "reject";
+    return [{ t, f, key, mode }];
+  }));
+  if (rows.length === 0) return null;
+  return (
+    <div style={{ margin: "12px 0" }}>
+      <b>Champs sensibles</b>
+      <p className="muted">Ces colonnes contiennent des valeurs confidentielles. Elles ne sont jamais enregistrées en clair : choisissez comment les traiter.</p>
+      {rows.map(({ t, f, key, mode }) => (
+        <label key={`${t.sourceId}:${key}`} style={{ display: "block", margin: "8px 0" }}>
+          🔒 {t.table} · {f.sourceHeader}
+          <select value={mode} disabled={disabled} onChange={(e) => onChange(t.sourceId, key, e.target.value as SensitiveMode)}>
+            {(Object.keys(SENSITIVE_LABEL) as SensitiveMode[]).map((m) => <option key={m} value={m}>{SENSITIVE_LABEL[m]}</option>)}
+          </select>
+          {mode === "reject" && <span className="warn"> Les lignes de ce tableau seront rejetées. Choisissez « Protéger » pour les importer sans stocker la valeur en clair.</span>}
+        </label>
+      ))}
+    </div>
+  );
+}

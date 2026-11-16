@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:type="TaskPaneApp">
+  <Id>27d743d5-20d6-4262-8477-ec1596340b8a</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>ExcelPro</ProviderName>
+  <DefaultLocale>fr-FR</DefaultLocale>
+  <DisplayName DefaultValue="ExcelPro — Hébergement"/>
+  <Description DefaultValue="Relie votre classeur aux données hébergées sur le serveur BERKIOS : charger, modifier et renvoyer vos lignes."/>
+  <IconUrl DefaultValue="https://excelprofrontend-five.vercel.app/addin-icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://excelprofrontend-five.vercel.app/addin-icon-64.png"/>
+  <SupportUrl DefaultValue="https://excelprofrontend-five.vercel.app/"/>
+  <AppDomains>
+    <AppDomain>https://excelprofrontend-five.vercel.app</AppDomain>
+    <AppDomain>https://server.berkios.online</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Workbook"/>
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://excelprofrontend-five.vercel.app/addin.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>
