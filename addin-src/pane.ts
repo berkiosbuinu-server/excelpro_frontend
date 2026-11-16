@@ -67,7 +67,19 @@ function listAll(importId: string, table: string): Promise<any[]> {
   return page(0);
 }
 
-// ───────── Feuille Excel ─────────
+// ───────── Feuille Excel (uniquement des fonctions de l'API Excel 1.1 : Excel 2016 et plus) ─────────
+function colLetter(n: number): string { var s = ""; for (var i = n; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; }
+/** Adresse A1 d'un bloc (départ 0-based) : addr(0,0,2,3) = « A1:C2 ». */
+function addr(row: number, col: number, rows: number, cols: number): string { return colLetter(col + 1) + (row + 1) + ":" + colLetter(col + cols) + (row + rows); }
+/** Quelles feuilles existent ? (remplace getItemOrNullObject, absent des anciennes versions) */
+async function sheetsExist(ctx: any, names: string[]): Promise<{ [lower: string]: boolean }> {
+  var items = ctx.workbook.worksheets; items.load("items/name"); await ctx.sync();
+  var have: { [k: string]: boolean } = {};
+  for (var i = 0; i < items.items.length; i++) have[String(items.items[i].name).toLowerCase()] = true;
+  var out: { [k: string]: boolean } = {};
+  for (var j = 0; j < names.length; j++) out[names[j].toLowerCase()] = !!have[names[j].toLowerCase()];
+  return out;
+}
 function sheetName(t: string) { return ("BK_" + t).slice(0, 31); }
 function snapName(t: string) { return ("_BKS_" + t).slice(0, 31); }
 
@@ -75,29 +87,28 @@ async function pull(importId: string, t: DataTable): Promise<number> {
   var rows = await listAll(importId, t.table), sh = buildSheet(t, rows), n = sh.header.length;
   await Excel.run(async function (ctx: any) {
     var wb = ctx.workbook;
-    var main = wb.worksheets.getItemOrNullObject(sheetName(t.table)), snap = wb.worksheets.getItemOrNullObject(snapName(t.table));
-    await ctx.sync();
-    var ws = main.isNullObject ? wb.worksheets.add(sheetName(t.table)) : main;
-    var ss = snap.isNullObject ? wb.worksheets.add(snapName(t.table)) : snap;
+    var ex = await sheetsExist(ctx, [sheetName(t.table), snapName(t.table)]);
+    var ws = ex[sheetName(t.table).toLowerCase()] ? wb.worksheets.getItem(sheetName(t.table)) : wb.worksheets.add(sheetName(t.table));
+    var ss = ex[snapName(t.table).toLowerCase()] ? wb.worksheets.getItem(snapName(t.table)) : wb.worksheets.add(snapName(t.table));
     ws.getRange().clear(); ss.getRange().clear();
     var fmt = function (sheet: any, rowsN: number, extra: number) {
       var line: string[] = sh.types.map(function (ty) { return isNumericType(ty) ? "General" : "@"; });
       for (var i = 0; i < extra; i++) line.push("@");
       var f: string[][] = []; for (var r = 0; r < rowsN; r++) f.push(line.slice());
-      sheet.getRangeByIndexes(0, 0, rowsN, n + extra).numberFormat = f;
+      sheet.getRange(addr(0, 0, rowsN, n + extra)).numberFormat = f;
     };
     fmt(ws, sh.values.length + 1, 0);
-    ws.getRangeByIndexes(0, 0, 1, n).values = [sh.header];
-    if (sh.values.length) ws.getRangeByIndexes(1, 0, sh.values.length, n).values = sh.values;
-    ws.getRangeByIndexes(0, 0, 1, n).format.font.bold = true;
-    ws.getRangeByIndexes(0, 0, 1, n).format.fill.color = "#E3F4EA";
-    if (t.generatedPrimaryKey) ws.getRangeByIndexes(0, 0, 1, 1).format.fill.color = "#DDDDDD";
+    ws.getRange(addr(0, 0, 1, n)).values = [sh.header];
+    if (sh.values.length) ws.getRange(addr(1, 0, sh.values.length, n)).values = sh.values;
+    ws.getRange(addr(0, 0, 1, n)).format.font.bold = true;
+    ws.getRange(addr(0, 0, 1, n)).format.fill.color = "#E3F4EA";
+    if (t.generatedPrimaryKey) ws.getRange(addr(0, 0, 1, 1)).format.fill.color = "#DDDDDD";
     try { ws.freezePanes.freezeRows(1); } catch (e) { /* ExcelApi ancien */ }
-    ws.getUsedRange().format.autofitColumns();
+    try { ws.getUsedRange().format.autofitColumns(); } catch (e) { /* ExcelApi 1.2 */ }
     fmt(ss, sh.values.length + 2, 1);
-    ss.getRangeByIndexes(0, 0, 1, 4).values = [["importId", importId, "table", t.table]];
-    ss.getRangeByIndexes(1, 0, 1, n + 1).values = [sh.header.concat([VERSION_COL])];
-    if (sh.values.length) ss.getRangeByIndexes(2, 0, sh.values.length, n + 1).values = sh.values.map(function (r, i) { return (r as any[]).concat([sh.versions[i]]); });
+    ss.getRange(addr(0, 0, 1, 4)).values = [["importId", importId, "table", t.table]];
+    ss.getRange(addr(1, 0, 1, n + 1)).values = [sh.header.concat([VERSION_COL])];
+    if (sh.values.length) ss.getRange(addr(2, 0, sh.values.length, n + 1)).values = sh.values.map(function (r, i) { return (r as any[]).concat([sh.versions[i]]); });
     ss.visibility = "Hidden";
     ws.activate();
     await ctx.sync();
@@ -108,10 +119,10 @@ async function pull(importId: string, t: DataTable): Promise<number> {
 async function readChanges(importId: string, t: DataTable, withDeletes: boolean) {
   var cols = columnsOf(t), n = cols.length;
   var res: { cur: any[][]; snapVals: any[][] } = await Excel.run(async function (ctx: any) {
-    var ws = ctx.workbook.worksheets.getItemOrNullObject(sheetName(t.table)), ss = ctx.workbook.worksheets.getItemOrNullObject(snapName(t.table));
-    await ctx.sync();
-    if (ws.isNullObject || ss.isNullObject) throw new Error("Cette table n'a pas encore été chargée dans ce classeur : cliquez d'abord sur « Charger depuis le serveur ».");
-    var a = ws.getUsedRange(true); a.load("values"); var b = ss.getUsedRange(true); b.load("values");
+    var ex = await sheetsExist(ctx, [sheetName(t.table), snapName(t.table)]);
+    if (!ex[sheetName(t.table).toLowerCase()] || !ex[snapName(t.table).toLowerCase()]) throw new Error("Cette table n'a pas encore été chargée dans ce classeur : cliquez d'abord sur « Charger depuis le serveur ».");
+    var ws = ctx.workbook.worksheets.getItem(sheetName(t.table)), ss = ctx.workbook.worksheets.getItem(snapName(t.table));
+    var a = ws.getUsedRange(); a.load("values"); var b = ss.getUsedRange(); b.load("values");
     await ctx.sync();
     return { cur: a.values, snapVals: b.values };
   });

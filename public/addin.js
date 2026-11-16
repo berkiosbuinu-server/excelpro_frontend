@@ -231,6 +231,31 @@ function listAll(importId, table) {
     }
     return page(0);
 }
+function colLetter(n) { var s = ""; for (var i = n; i > 0; i = Math.floor((i - 1) / 26))
+    s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; }
+function addr(row, col, rows, cols) { return colLetter(col + 1) + (row + 1) + ":" + colLetter(col + cols) + (row + rows); }
+function sheetsExist(ctx, names) {
+    return __awaiter(this, void 0, void 0, function () {
+        var items, have, i, out, j;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    items = ctx.workbook.worksheets;
+                    items.load("items/name");
+                    return [4, ctx.sync()];
+                case 1:
+                    _a.sent();
+                    have = {};
+                    for (i = 0; i < items.items.length; i++)
+                        have[String(items.items[i].name).toLowerCase()] = true;
+                    out = {};
+                    for (j = 0; j < names.length; j++)
+                        out[names[j].toLowerCase()] = !!have[names[j].toLowerCase()];
+                    return [2, out];
+            }
+        });
+    });
+}
 function sheetName(t) { return ("BK_" + t).slice(0, 31); }
 function snapName(t) { return ("_BKS_" + t).slice(0, 31); }
 function pull(importId, t) {
@@ -243,17 +268,16 @@ function pull(importId, t) {
                     rows = _a.sent(), sh = buildSheet(t, rows), n = sh.header.length;
                     return [4, Excel.run(function (ctx) {
                             return __awaiter(this, void 0, void 0, function () {
-                                var wb, main, snap, ws, ss, fmt;
+                                var wb, ex, ws, ss, fmt;
                                 return __generator(this, function (_a) {
                                     switch (_a.label) {
                                         case 0:
                                             wb = ctx.workbook;
-                                            main = wb.worksheets.getItemOrNullObject(sheetName(t.table)), snap = wb.worksheets.getItemOrNullObject(snapName(t.table));
-                                            return [4, ctx.sync()];
+                                            return [4, sheetsExist(ctx, [sheetName(t.table), snapName(t.table)])];
                                         case 1:
-                                            _a.sent();
-                                            ws = main.isNullObject ? wb.worksheets.add(sheetName(t.table)) : main;
-                                            ss = snap.isNullObject ? wb.worksheets.add(snapName(t.table)) : snap;
+                                            ex = _a.sent();
+                                            ws = ex[sheetName(t.table).toLowerCase()] ? wb.worksheets.getItem(sheetName(t.table)) : wb.worksheets.add(sheetName(t.table));
+                                            ss = ex[snapName(t.table).toLowerCase()] ? wb.worksheets.getItem(snapName(t.table)) : wb.worksheets.add(snapName(t.table));
                                             ws.getRange().clear();
                                             ss.getRange().clear();
                                             fmt = function (sheet, rowsN, extra) {
@@ -263,26 +287,29 @@ function pull(importId, t) {
                                                 var f = [];
                                                 for (var r = 0; r < rowsN; r++)
                                                     f.push(line.slice());
-                                                sheet.getRangeByIndexes(0, 0, rowsN, n + extra).numberFormat = f;
+                                                sheet.getRange(addr(0, 0, rowsN, n + extra)).numberFormat = f;
                                             };
                                             fmt(ws, sh.values.length + 1, 0);
-                                            ws.getRangeByIndexes(0, 0, 1, n).values = [sh.header];
+                                            ws.getRange(addr(0, 0, 1, n)).values = [sh.header];
                                             if (sh.values.length)
-                                                ws.getRangeByIndexes(1, 0, sh.values.length, n).values = sh.values;
-                                            ws.getRangeByIndexes(0, 0, 1, n).format.font.bold = true;
-                                            ws.getRangeByIndexes(0, 0, 1, n).format.fill.color = "#E3F4EA";
+                                                ws.getRange(addr(1, 0, sh.values.length, n)).values = sh.values;
+                                            ws.getRange(addr(0, 0, 1, n)).format.font.bold = true;
+                                            ws.getRange(addr(0, 0, 1, n)).format.fill.color = "#E3F4EA";
                                             if (t.generatedPrimaryKey)
-                                                ws.getRangeByIndexes(0, 0, 1, 1).format.fill.color = "#DDDDDD";
+                                                ws.getRange(addr(0, 0, 1, 1)).format.fill.color = "#DDDDDD";
                                             try {
                                                 ws.freezePanes.freezeRows(1);
                                             }
                                             catch (e) { }
-                                            ws.getUsedRange().format.autofitColumns();
+                                            try {
+                                                ws.getUsedRange().format.autofitColumns();
+                                            }
+                                            catch (e) { }
                                             fmt(ss, sh.values.length + 2, 1);
-                                            ss.getRangeByIndexes(0, 0, 1, 4).values = [["importId", importId, "table", t.table]];
-                                            ss.getRangeByIndexes(1, 0, 1, n + 1).values = [sh.header.concat([VERSION_COL])];
+                                            ss.getRange(addr(0, 0, 1, 4)).values = [["importId", importId, "table", t.table]];
+                                            ss.getRange(addr(1, 0, 1, n + 1)).values = [sh.header.concat([VERSION_COL])];
                                             if (sh.values.length)
-                                                ss.getRangeByIndexes(2, 0, sh.values.length, n + 1).values = sh.values.map(function (r, i) { return r.concat([sh.versions[i]]); });
+                                                ss.getRange(addr(2, 0, sh.values.length, n + 1)).values = sh.values.map(function (r, i) { return r.concat([sh.versions[i]]); });
                                             ss.visibility = "Hidden";
                                             ws.activate();
                                             return [4, ctx.sync()];
@@ -309,19 +336,18 @@ function readChanges(importId, t, withDeletes) {
                     cols = columnsOf(t), n = cols.length;
                     return [4, Excel.run(function (ctx) {
                             return __awaiter(this, void 0, void 0, function () {
-                                var ws, ss, a, b;
+                                var ex, ws, ss, a, b;
                                 return __generator(this, function (_a) {
                                     switch (_a.label) {
-                                        case 0:
-                                            ws = ctx.workbook.worksheets.getItemOrNullObject(sheetName(t.table)), ss = ctx.workbook.worksheets.getItemOrNullObject(snapName(t.table));
-                                            return [4, ctx.sync()];
+                                        case 0: return [4, sheetsExist(ctx, [sheetName(t.table), snapName(t.table)])];
                                         case 1:
-                                            _a.sent();
-                                            if (ws.isNullObject || ss.isNullObject)
+                                            ex = _a.sent();
+                                            if (!ex[sheetName(t.table).toLowerCase()] || !ex[snapName(t.table).toLowerCase()])
                                                 throw new Error("Cette table n'a pas encore été chargée dans ce classeur : cliquez d'abord sur « Charger depuis le serveur ».");
-                                            a = ws.getUsedRange(true);
+                                            ws = ctx.workbook.worksheets.getItem(sheetName(t.table)), ss = ctx.workbook.worksheets.getItem(snapName(t.table));
+                                            a = ws.getUsedRange();
                                             a.load("values");
-                                            b = ss.getUsedRange(true);
+                                            b = ss.getUsedRange();
                                             b.load("values");
                                             return [4, ctx.sync()];
                                         case 2:
