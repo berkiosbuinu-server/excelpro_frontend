@@ -1,0 +1,58 @@
+# Dépendances
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Fichiers de compilation (Build & TypeScript)
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Vite (cache et fichiers temporaires de configuration)
+.vite/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Variables d'environnement et secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+!.env.example
+
+# Logs et débogage
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Tests et couverture de code
+coverage/
+.nyc_output/
+
+# Caches d'outils et linters
+.eslintcache
+.stylelintcache
+.cache/
+.npm
+
+# Éditeurs et IDEs
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Systèmes d'exploitation
+.DS_Store
+Thumbs.db
