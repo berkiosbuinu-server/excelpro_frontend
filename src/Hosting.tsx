@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { hosting, resetHostingSession, SENSITIVE_LABEL, STATE_LABEL, withSensitiveMode, type Cap, type ImportRow, type ImportView, type SensitiveMode } from "./hosting";
 import { api } from "./api";
 import { DataBrowser } from "./DataBrowser";
+import { ConnectionPanel } from "./ConnectionPanel";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Erreur inconnue");
 const LABELS: Record<string, string> = {
@@ -99,6 +100,7 @@ export function Hosting() {
       )}
 
       {cur?.state === "completed" && <DataBrowser importId={cur.id} />}
+      {cur?.state === "completed" && <ConnectionPanel importId={cur.id} />}
 
       <h3 style={{ marginTop: 24 }}>Mes importations</h3>
       {rows.length === 0 && <p className="muted">Aucune importation pour le moment.</p>}

@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import { dataBase, powerQuery, curlExample, vbaModule, KEY_PLACEHOLDER } from "../src/snippets.ts";
+const base = dataBase("https://server.berkios.online/", "abc123");
+assert.equal(base, "https://server.berkios.online/admin/v1/excel-cloud/imports/abc123/data");
+const key = "bkk1.deadbeef." + "A".repeat(43);
+const pq = powerQuery(base, "vente", key);
+assert.ok(pq.includes(`${base}/vente?format=csv`) && pq.includes(`Bearer ${key}`) && pq.includes("Encoding = 65001"));
+assert.ok(powerQuery(base, "table x", KEY_PLACEHOLDER).includes("table%20x"));
+assert.ok(curlExample(base, "vente", key).includes(`Authorization: Bearer ${key}`));
+const vba = vbaModule(base, key);
+assert.ok(vba.includes(`Private Const BK_URL As String = "${base}"`) && vba.includes(`"${key}"`));
+assert.ok(!vba.includes("{{"), "aucun repère non remplacé");
+assert.ok(vba.startsWith('Attribute VB_Name = "BerkiosApi"'));
+assert.ok(vbaModule('a"b', "k").includes('"a""b"'), "guillemet doublé en VBA");
+const count = (re: RegExp) => (vba.match(re) || []).length;
+assert.equal(count(/^\s*(Public|Private) Sub /gm), count(/^\s*End Sub/gm));
+assert.equal(count(/^\s*(Public|Private) Function /gm), count(/^\s*End Function/gm));
+console.log("snippets OK");
