@@ -119,7 +119,7 @@ Private Function BK_JsonValue(ByVal v As Variant) As String
         Case vbBoolean: BK_JsonValue = IIf(v, "true", "false")
         Case vbInteger, vbLong, vbSingle, vbDouble, vbCurrency, vbDecimal, vbByte
             BK_JsonValue = Replace(Trim$(Str$(v)), ",", ".")
-        Case vbDate: BK_JsonValue = BK_JsonString(Format$(v, "yyyy-mm-dd"))
+        Case vbDate: BK_JsonValue = BK_JsonString(Format$(v, IIf(v = Int(v), "yyyy-mm-dd", "yyyy-mm-dd hh:nn:ss")))
         Case Else: BK_JsonValue = BK_JsonString(CStr(v))
     End Select
 End Function
@@ -177,6 +177,41 @@ Private Function BK_JsonField(ByVal json As String, ByVal field As String) As St
         If out <> "null" Then BK_JsonField = out
     End If
 End Function
+
+' ---- Aides utilisées par les fonctions générées pour chaque table ---------------------------------
+Private Function BK_Add(ByVal j As String, ByVal field As String, ByVal v As Variant) As String
+    If Len(j) > 0 Then j = j & ","
+    BK_Add = j & BK_JsonString(field) & ":" & BK_JsonValue(v)
+End Function
+
+' Texte ISO du serveur (2026-01-05 ou 2026-01-05T08:30:00Z, heure UTC) -> Date ; vide si absent.
+Private Function BK_ToDate(ByVal s As String) As Variant
+    Dim d As Date
+    If Len(s) < 10 Then Exit Function
+    On Error GoTo bad
+    d = DateSerial(CInt(Mid$(s, 1, 4)), CInt(Mid$(s, 6, 2)), CInt(Mid$(s, 9, 2)))
+    If Len(s) >= 19 Then d = d + TimeSerial(CInt(Mid$(s, 12, 2)), CInt(Mid$(s, 15, 2)), CInt(Mid$(s, 18, 2)))
+    BK_ToDate = d
+    Exit Function
+bad:
+    BK_ToDate = s
+End Function
+
+' Charge une table dans la feuille "BK_<table>" (créée si besoin).
+Public Sub BK_LoadInSheet(ByVal table As String)
+    Dim ws As Worksheet, nm As String
+    nm = Left$("BK_" & table, 31)
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(nm)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
+        ws.Name = nm
+    Else
+        ws.Cells.Clear
+    End If
+    BK_LoadTable table, ws.Range("A1")
+End Sub
 
 ' ---- Utilitaires -----------------------------------------------------------------------------
 Private Function BK_UrlEncode(ByVal s As String) As String
