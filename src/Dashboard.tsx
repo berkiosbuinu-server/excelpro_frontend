@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { DataBrowser } from "./DataBrowser";
 import { Queries } from "./Queries";
+import { Rights } from "./Rights";
 import { dataApi, keysApi, queriesApi, serverBase, type ApiKey, type NewApiKey } from "./hosting";
 import { columnsOf, type DataTable, type SavedItem } from "./dataops";
 import { curlExample, dataBase, KEY_PLACEHOLDER, powerQuery } from "./snippets";
 import { jsExample, pythonExample, rootOf, routesOf, savedExample, vbaApp, vbaUsage } from "./generate";
 
-type Tab = "overview" | "tables" | "data" | "queries" | "api" | "routes" | "examples";
+type Tab = "overview" | "tables" | "data" | "queries" | "rights" | "api" | "routes" | "examples";
 const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Vue d'ensemble" }, { id: "tables", label: "Tables" }, { id: "data", label: "Données" }, { id: "queries", label: "Requêtes" },
+  { id: "overview", label: "Vue d'ensemble" }, { id: "tables", label: "Tables" }, { id: "data", label: "Données" }, { id: "queries", label: "Requêtes" }, { id: "rights", label: "Droits" },
   { id: "api", label: "API & clés" }, { id: "routes", label: "Routes" }, { id: "examples", label: "Exemples" },
 ];
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Erreur inconnue");
@@ -126,6 +127,8 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
       )}
 
       {tab === "queries" && <Queries importId={importId} tables={tables} items={saved} onChanged={load} onUse={(n) => { setFocus(n); setTab("examples"); }} />}
+
+      {tab === "rights" && <Rights importId={importId} tables={tables} items={saved} />}
 
       {tab === "routes" && <Routes base={base} tables={tables} items={saved} importId={importId} onCopy={doCopy} />}
 

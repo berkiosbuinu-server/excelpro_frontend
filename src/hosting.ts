@@ -1,7 +1,7 @@
 // Client de l'hébergement BERKIOS (https://server.berkios.online), appelé DIRECTEMENT depuis le navigateur.
 // Le jeton est émis par le backend ExcelPro (signé, court, limité à l'entreprise du compte) : aucun secret n'est ici.
 import { api } from "./api";
-import type { DataRow, DataTable, SavedDef, SavedItem, Scalar } from "./dataops";
+import type { DataRow, DataTable, Policy, SavedDef, SavedItem, Scalar } from "./dataops";
 
 export type Cap = { analyzer: boolean; postgres: { configured: boolean; reachable: boolean; error?: string }; maxUploadBytes: number; formats: string[] };
 export type ImportRow = { id: string; tenant: string; fileName: string; state: string; error: string | null; createdAt: string; updatedAt: string };
@@ -98,6 +98,12 @@ export const queriesApi = {
   save: (id: string, name: string, kind: "query" | "action", def: SavedDef) => call<SavedItem>("POST", `/imports/${id}/queries`, { json: { name, kind, def } }),
   remove: (id: string, name: string) => call<{ name: string; deleted: boolean }>("DELETE", `/imports/${id}/queries/${enc(name)}`),
   preview: (id: string, def: SavedDef, params: Record<string, string>) => call<DataPage>("POST", `/imports/${id}/queries/preview`, { json: { def, params } }),
+};
+/** Droits par rôle : qui peut lire, ajouter, modifier, supprimer, lancer quelles requêtes et actions. */
+export const policyApi = {
+  get: (id: string) => call<Policy | null>("GET", `/imports/${id}/policy`),
+  save: (id: string, policy: Policy) => call<Policy>("PUT", `/imports/${id}/policy`, { json: policy }),
+  remove: (id: string) => call<{ deleted: boolean }>("DELETE", `/imports/${id}/policy`),
 };
 export const serverBase = async () => (await connection()).url;
 

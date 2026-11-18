@@ -122,6 +122,23 @@ End Function
 Public Function BK_UserField(ByVal champ As String) As String
     BK_UserField = BK_JsonField(bk_user, champ)
 End Function
+' Droits de l'utilisateur connecte : BK_Can("vente", "update"), BK_Can("total-global", "query"), BK_Can("payer", "action").
+' op : read, create, update, delete (tables) ; "query" ou "action" pour une requete ou une action enregistree. Sert a griser un bouton.
+Public Function BK_Can(ByVal cible As String, Optional ByVal op As String = "read") As Boolean
+    Dim p As String
+    On Error GoTo echec
+    If op = "query" Then
+        p = "query=" & BK_UrlEncode(cible)
+    ElseIf op = "action" Then
+        p = "action=" & BK_UrlEncode(cible)
+    Else
+        p = "table=" & BK_UrlEncode(cible) & "&op=" & BK_UrlEncode(op)
+    End If
+    BK_Can = (InStr(BK_Request("GET", "~/can?" & p, ""), """allowed"":true") > 0)
+    Exit Function
+echec:
+    BK_Can = False
+End Function
 Public Function BK_Connected() As Boolean
     BK_Connected = (Len(bk_token) > 0)
 End Function

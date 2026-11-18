@@ -214,7 +214,8 @@ export function routesOf(tables: DataTable[], items: SavedItem[] = []): Route[] 
     { group: "Authentification", root: true, method: "POST", path: "/verify-secret", title: "Vérifier un mot de passe sur le serveur (renvoie valid: true/false, jamais l'empreinte)", body: `{ "table": "${au.table}", "field": "${au.secret}", "by": "${au.by}", "key": "<nom>", "secret": "<mot de passe>" }` },
     { group: "Authentification", root: true, method: "POST", path: "/login", title: "Connecter un utilisateur : renvoie un jeton de session (bks1…) et ses données", body: `{ "table": "${au.table}", "field": "${au.secret}", "by": "${au.by}", "key": "<nom>", "secret": "<mot de passe>"${au.active ? `, "activeField": "${au.active}"` : ""}, "ttlMinutes": 480 }` },
     { group: "Authentification", root: true, method: "GET", path: "/session", title: "Vérifier la session en cours (Authorization: Bearer <jeton bks1…>)" },
-    { group: "Authentification", root: true, method: "POST", path: "/logout", title: "Fermer la session en cours", body: "{}" });
+    { group: "Authentification", root: true, method: "POST", path: "/logout", title: "Fermer la session en cours", body: "{}" },
+    { group: "Authentification", root: true, method: "GET", path: "/can?table=<table>&op=read|create|update|delete  (ou ?query=<nom> / ?action=<nom>)", title: "L'utilisateur connecté a-t-il ce droit ? → { allowed }" });
   for (const t of tables) {
     const p = `/${t.table}`;
     r.push(
