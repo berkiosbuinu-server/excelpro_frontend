@@ -18,8 +18,10 @@ export type SavedDef = {
 export type SavedItem = { name: string; kind: "query" | "action"; def: SavedDef; params: SavedParam[]; valid: boolean; error?: string; createdAt: string; updatedAt: string };
 
 /** Droits par rôle d'un classeur (appliqués aux utilisateurs connectés). */
-export type RoleRights = { tables: Record<string, string[]>; queries: string[]; actions: string[] };
-export type Policy = { roleColumn?: string; roles: Record<string, RoleRights> };
+export type RowRule = { col: string; value: string }; // value : « $user » (identifiant de connexion), « $user.colonne » (fiche de l'utilisateur) ou une valeur fixe
+export type RoleRights = { tables: Record<string, string[]>; queries: string[]; actions: string[]; rows?: Record<string, RowRule> };
+export type RoleSource = { table: string; match: string; column: string };
+export type Policy = { roleColumn?: string; roleSource?: RoleSource; roles: Record<string, RoleRights> };
 
 export const VERSION_COL = "_berkios_version";
 const NUM_RE = /^(numeric|decimal|int|integer|bigint|smallint|double|real|float)/i;
