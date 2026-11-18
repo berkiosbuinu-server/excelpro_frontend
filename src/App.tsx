@@ -6,6 +6,7 @@ import {
 import { PayModal } from "./PayModal";
 import { Runner } from "./Runner";
 import { Hosting } from "./Hosting";
+import { Plans } from "./Plans";
 import { ChatWidget } from "./Chat";
 import { DevicesShowcase, Logo, PlatformBadge, PlatformIcon, PLATFORM_COLORS } from "./visuals";
 
@@ -70,6 +71,7 @@ export default function App() {
   const logout = () => { setToken(null); setRole(null); setEmail(null); setPage("home"); setMenu(false); };
   const go = (p: Page) => { setPage(p); setMenu(false); window.scrollTo({ top: 0 }); };
   const start = () => { if (email) go("submit"); else { setNext("submit"); go("login"); } };
+  const chooseHosting = () => { if (email) go("hosting"); else { setNext("hosting"); go("login"); } };
   const goSection = (id: string) => { setPendingScroll(id); setPage("home"); setMenu(false); };
 
   return (
@@ -97,7 +99,7 @@ export default function App() {
       </header>
       {payNotice && <div className="notice" role="status">{payNotice}<button onClick={() => setPayNotice("")} aria-label="Fermer">✕</button></div>}
       <main className={page === "home" ? "wide-main" : ""}>
-        {page === "home" && <Home pricing={pricing} onStart={start} goSection={goSection} />}
+        {page === "home" && <Home pricing={pricing} onStart={start} onHost={chooseHosting} goSection={goSection} />}
         {page === "login" && <Login onAuth={onAuth} />}
         {page === "submit" && (email ? <NewOrder pricing={pricing} onCreated={() => go("orders")} /> : <Login onAuth={onAuth} />)}
         {page === "studio" && (email ? <Claim /> : <Login onAuth={onAuth} />)}
@@ -111,7 +113,7 @@ export default function App() {
   );
 }
 
-function Home({ pricing, onStart, goSection }: { pricing: Pricing | null; onStart: () => void; goSection: (id: string) => void }) {
+function Home({ pricing, onStart, onHost, goSection }: { pricing: Pricing | null; onStart: () => void; onHost: () => void; goSection: (id: string) => void }) {
   return (
     <>
       <section className="hero">
@@ -134,7 +136,7 @@ function Home({ pricing, onStart, goSection }: { pricing: Pricing | null; onStar
       <section className="how">
         {[
           ["1", "Envoyez votre classeur", "Déposez votre fichier .xlsx ou .xlsm. L'analyse est automatique."],
-          ["2", "Recevez deux rapports", "Après paiement, recevez immédiatement le rapport automatique, puis le rapport final rédigé par nos experts après leurs tests."],
+          ["2", "Recevez le rapport", "Nos experts testent macros, formules et UserForms avant toute conversion."],
           ["3", "Récupérez votre application", "Une clé de récupération vous donne accès à vos livrables, pour chaque plateforme."],
         ].map(([n, t, d]) => (
           <div className="step" key={n}><span className="num-badge">{n}</span><h3>{t}</h3><p className="muted">{d}</p></div>
@@ -158,7 +160,8 @@ function Home({ pricing, onStart, goSection }: { pricing: Pricing | null; onStar
             <div>
               <h3>Vérification de votre fichier avant conversion</h3>
               <p>
-                Le rapport automatique ExcelPro est disponible dès la confirmation du paiement. Nos experts poursuivent ensuite les tests des macros, du VBA, des formules et des UserForms, puis vous transmettent leur rapport final avant la conversion.
+                Nos experts ouvrent et lancent votre application sur leurs machines : macros, VBA, formules, UserForms.
+                Vous recevez un rapport détaillé <strong>avant</strong> de payer la conversion.
               </p>
               <ul className="rates">
                 <li><strong>{pricing.check_fee_rates.per_interface} $</strong> par interface (feuille ou UserForm)</li>
@@ -174,19 +177,8 @@ function Home({ pricing, onStart, goSection }: { pricing: Pricing | null; onStar
       </section>
 
       <section id="hebergement" className="block">
-        <div className="head"><h2>Hébergement</h2><p className="muted">Client-serveur hébergé — par mois</p></div>
-        <div className="grid host-grid">
-          {pricing?.hosting.map((h, i) => (
-            <div className={`card host-card ${i === 1 ? "featured" : ""}`} key={h.name}>
-              {i === 1 && <span className="ribbon">Populaire</span>}
-              <h3>{h.name}</h3>
-              <p className="price">{h.price_usd} $<small>/mois</small></p>
-              <ul className="ticks"><li>{h.users} utilisateurs</li>{h.features.map((f) => <li key={f}>{f}</li>)}</ul>
-              <button className={i === 1 ? "primary" : ""} onClick={onStart}>Choisir {h.name}</button>
-            </div>
-          ))}
-        </div>
-        <p className="muted center">Tarifs d'hébergement indicatifs, à valider.</p>
+        <div className="head"><h2>Hébergement</h2><p className="muted">Votre Excel devient une base de données en ligne — pour vous, votre entreprise, ou vos propres clients</p></div>
+        <Plans onChoose={onHost} />
       </section>
 
       <section className="final-cta">
@@ -244,12 +236,6 @@ function Orders({ pricing }: { pricing: Pricing | null }) {
 
 function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Pricing | null; onDone: () => void }) {
   const [open, setOpen] = useState(false);
-  const [clock, setClock] = useState(Date.now());
-  useEffect(() => {
-    if (!o.claim_expires_at) return;
-    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, [o.claim_expires_at]);
   const step = STEPS.indexOf(o.status);
   const purpose: "check" | "conversion" | null = !o.check_paid
     ? "check"
@@ -279,49 +265,6 @@ function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Prici
           {p.purpose === "check" ? "Vérification" : "Conversion"} — {PROVIDERS[p.provider] ?? p.provider} : {PAY_STATUS[p.status]}{p.reference ? ` (${p.reference})` : ""}
         </div>
       ))}
-      {o.check_paid && (
-        <div className="auto-report-notice">
-          <strong>Rapport de vérification automatique disponible</strong>
-          <p className="muted">Ce rapport est généré par le moteur ExcelPro. Il s'agit d'une première analyse technique, en attendant le rapport final des experts.</p>
-          <button className="ghost" onClick={async () => {
-            try {
-              const blob = await api.autoReportBlob(o.id);
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a"); a.href = url; a.download = `rapport-automatique-${o.id}.pdf`; a.click();
-              URL.revokeObjectURL(url);
-            } catch (e) { window.alert(errMsg(e)); }
-          }}>Télécharger le rapport automatique (PDF)</button>
-        </div>
-      )}
-      {o.claim_key && (
-        <div className="auto-report-notice claim-key-card">
-          <strong>Votre clé de récupération</strong>
-          <p className="muted">Conservez cette clé : vous pourrez la saisir dans votre Studio ExcelPro pour récupérer votre application.</p>
-          <div className="claim-key-value"><code>{o.claim_key}</code></div>
-          <div className="inline">
-            <button className="ghost" type="button" onClick={() => {
-              navigator.clipboard.writeText(o.claim_key!).then(
-                () => window.alert("Clé copiée."),
-                () => window.alert("Copie impossible. Sélectionnez la clé pour la copier.")
-              );
-            }}>Copier la clé</button>
-            <button className="ghost" type="button" onClick={() => {
-              const blob = new Blob([`ExcelPro — Clé de récupération\\nCommande : #${o.id}\\nApplication : ${o.app_name}\\nClé : ${o.claim_key}\\n`], { type: "text/plain;charset=utf-8" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a"); a.href = url; a.download = `excelpro-cle-${o.id}.txt`; a.click();
-              URL.revokeObjectURL(url);
-            }}>Télécharger la clé (.txt)</button>
-          </div>
-          {o.status === "ready" && o.claim_expires_at ? (() => {
-            const remaining = new Date(o.claim_expires_at).getTime() - clock;
-            return remaining > 0
-              ? <p className="ok">Application disponible — retrait avant le {new Date(o.claim_expires_at).toLocaleString("fr-FR")}. Temps restant : {Math.floor(remaining / 86_400_000)} j {Math.floor((remaining % 86_400_000) / 3_600_000)} h.</p>
-              : <p className="error">Le délai de retrait de 5 jours est expiré. Contactez l'équipe ExcelPro.</p>;
-          })() : (
-            <p className="muted">Votre clé est créée. Elle sera activée lorsque votre application sera prête. Les 5 jours de retrait commenceront à cette date.</p>
-          )}
-        </div>
-      )}
       {o.check_report && <ReportView report={o.check_report} />}
       {purpose === null && o.check_report?.verdict === "not_convertible" && !o.paid && (
         <div className="warn-box">Ce fichier n'est pas convertible en l'état : contactez-nous pour étudier les adaptations possibles.</div>
@@ -330,7 +273,7 @@ function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Prici
         <div className="order-pay">
           <div>
             <strong>{purpose === "check" ? "Frais de vérification" : "Conversion"} : {money(amount)}</strong>
-            {purpose === "check" && <div className="muted">Le rapport automatique sera disponible dès confirmation du paiement. Le rapport final des experts suivra après leurs tests.</div>}
+            {purpose === "check" && <div className="muted">Nos experts testeront votre fichier, puis vous recevrez le rapport avant toute conversion.</div>}
           </div>
           <button className="primary big pay-btn" onClick={() => setOpen(true)}>Payer {money(amount)}</button>
         </div>
@@ -343,7 +286,7 @@ function OrderCard({ order: o, pricing, onDone }: { order: Order; pricing: Prici
 function ReportView({ report }: { report: CheckReport }) {
   return (
     <details className="report" open>
-      <summary><strong>Rapport final des experts</strong> — {VERDICTS[report.verdict]}</summary>
+      <summary><strong>Rapport de vérification</strong> — {VERDICTS[report.verdict]}</summary>
       {report.tested_on && <div className="muted">Testé sur : {report.tested_on}</div>}
       <p>{report.summary}</p>
       <div className="stats">
@@ -579,21 +522,7 @@ function Admin() {
             {o.status === "in_progress" && <button className="primary" onClick={() => act(o.id, "ready")}>Marquer prête + clé</button>}
           </div>
           {o.status === "checking" && <ReportForm order={o} onDone={reload} />}
-          {o.check_paid && (
-        <div className="auto-report-notice">
-          <strong>Rapport de vérification automatique disponible</strong>
-          <p className="muted">Ce rapport est généré par le moteur ExcelPro. Il s'agit d'une première analyse technique, en attendant le rapport final des experts.</p>
-          <button className="ghost" onClick={async () => {
-            try {
-              const blob = await api.autoReportBlob(o.id);
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a"); a.href = url; a.download = `rapport-automatique-${o.id}.pdf`; a.click();
-              URL.revokeObjectURL(url);
-            } catch (e) { window.alert(errMsg(e)); }
-          }}>Télécharger le rapport automatique (PDF)</button>
-        </div>
-      )}
-      {o.check_report && <ReportView report={o.check_report} />}
+          {o.check_report && <ReportView report={o.check_report} />}
           {o.platforms.map((p) => {
             const d = o.deliveries.find((x) => x.platform === p);
             return (
@@ -603,7 +532,7 @@ function Admin() {
               </div>
             );
           })}
-          {o.claim_key && <div className="ok">Clé de récupération : <code>{o.claim_key}</code>{o.claim_expires_at ? ` · retrait jusqu'au ${new Date(o.claim_expires_at).toLocaleString("fr-FR")}` : " · délai non démarré"}</div>}
+          {o.claim_key && <div className="ok">Clé de récupération : <code>{o.claim_key}</code></div>}
         </div>
       ))}
     </section>

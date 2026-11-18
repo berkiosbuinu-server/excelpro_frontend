@@ -311,20 +311,21 @@ main { padding-bottom: 130px; }
 .uf-label { background: transparent; }
 .uf-btn { text-align: center; }
 
-
-/* Clé de récupération affichée dans l'espace client */
-.claim-key-card { margin-top: 1rem; }
-.claim-key-value {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: .75rem 0;
-  padding: .9rem 1rem;
-  border: 1px dashed var(--line, #b8c8be);
-  border-radius: 10px;
-  background: var(--surface, #f7faf8);
-  font-size: 1.15rem;
-  letter-spacing: .08em;
-  overflow-wrap: anywhere;
-}
-.claim-key-value code { font-weight: 800; }
+/* Tarifs d'hébergement */
+.billing { display: inline-flex; margin: 0 auto 18px; padding: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); }
+.plans { text-align: center; }
+.billing button { border: 0; background: transparent; border-radius: 999px; padding: 8px 18px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.billing button.on { background: var(--accent); color: #fff; }
+.save { font-size: .75rem; margin-left: 4px; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.billing button.on .save { background: rgba(255,255,255,.22); color: #fff; }
+.plan-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); text-align: left; }
+.plan { position: relative; display: flex; flex-direction: column; }
+.plan .ticks { flex: 1; }
+.plan-sub { min-height: 1.4em; margin: 0 0 8px; font-size: .85rem; }
+.compare, .faq { max-width: 900px; margin: 22px auto 0; text-align: left; }
+.compare summary, .faq summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.scroll-x { overflow-x: auto; }
+.compare table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: .92rem; }
+.compare th, .compare td { padding: 8px 10px; border-top: 1px solid var(--line); text-align: left; }
+.compare thead th { border-top: 0; }
+.faq details { border-top: 1px solid var(--line); }
