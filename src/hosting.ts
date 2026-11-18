@@ -99,6 +99,10 @@ export const queriesApi = {
   remove: (id: string, name: string) => call<{ name: string; deleted: boolean }>("DELETE", `/imports/${id}/queries/${enc(name)}`),
   preview: (id: string, def: SavedDef, params: Record<string, string>) => call<DataPage>("POST", `/imports/${id}/queries/preview`, { json: { def, params } }),
 };
+export type QuotaItem = { used: number; limit: number | null; percent: number | null; level: "ok" | "warn" | "full" };
+export type Quota = { tenant: string; plan: string | null; unlimited: boolean; month?: string; level?: "ok" | "warn" | "full"; usage?: Record<"workbooks" | "rows" | "calls" | "keys" | "queries", QuotaItem> };
+/** Utilisation de l'offre (lignes, appels du mois, clés…) de l'entreprise propriétaire du classeur. */
+export const quotaApi = { get: (id: string) => call<Quota>("GET", `/imports/${id}/quota`) };
 /** Droits par rôle : qui peut lire, ajouter, modifier, supprimer, lancer quelles requêtes et actions. */
 export const policyApi = {
   get: (id: string) => call<Policy | null>("GET", `/imports/${id}/policy`),

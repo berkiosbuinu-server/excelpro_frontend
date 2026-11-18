@@ -39,6 +39,7 @@ Private Const BK_KEY As String = "{{KEY}}"
 Private bk_token As String   ' jeton de session apres BK_Login (sinon la cle ci-dessus est utilisee)
 Private bk_user As String    ' reponse de la derniere connexion (champs de l'utilisateur, sans mot de passe)
 Public BK_DernierMessage As String ' dernier message d'erreur de BK_Verify / BK_Login
+Public BK_Alerte As String ' non vide quand le quota de l'offre approche de sa limite (80 % et plus)
 
 ' ---- Utilisation -------------------------------------------------------------------------
 '  BK_LoadTable "vente", Sheets("Vente").Range("A1")          charge toute la table (en-têtes + lignes)
@@ -173,6 +174,11 @@ Private Function BK_Request(ByVal method As String, ByVal path As String, ByVal 
         http.send
     End If
     txt = http.responseText
+    BK_Alerte = ""
+    On Error Resume Next
+    BK_Alerte = http.getResponseHeader("X-Berkios-Quota")
+    On Error GoTo 0
+    If Len(BK_Alerte) > 0 Then BK_Alerte = "Quota BERKIOS bientot atteint (" & BK_Alerte & "). Pensez a changer d'offre."
     If http.Status >= 400 Then
         Dim m As String: m = BK_JsonField(txt, "message")
         If Len(m) = 0 Then m = "erreur " & http.Status

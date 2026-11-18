@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { DataBrowser } from "./DataBrowser";
 import { Queries } from "./Queries";
 import { Rights } from "./Rights";
-import { dataApi, keysApi, queriesApi, serverBase, type ApiKey, type NewApiKey } from "./hosting";
+import { dataApi, keysApi, queriesApi, quotaApi, serverBase, type ApiKey, type NewApiKey, type Quota, type QuotaItem } from "./hosting";
 import { columnsOf, type DataTable, type SavedItem } from "./dataops";
 import { curlExample, dataBase, KEY_PLACEHOLDER, powerQuery } from "./snippets";
 import { jsExample, pythonExample, rootOf, routesOf, savedExample, vbaApp, vbaUsage } from "./generate";
 
 type Tab = "overview" | "tables" | "data" | "queries" | "rights" | "api" | "routes" | "examples";
+const QUOTA_LABEL: Record<string, string> = { workbooks: "Classeurs", rows: "Lignes de données", calls: "Appels API ce mois-ci", keys: "Clés d'API", queries: "Requêtes et actions" };
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Vue d'ensemble" }, { id: "tables", label: "Tables" }, { id: "data", label: "Données" }, { id: "queries", label: "Requêtes" }, { id: "rights", label: "Droits" },
   { id: "api", label: "API & clés" }, { id: "routes", label: "Routes" }, { id: "examples", label: "Exemples" },
@@ -29,6 +30,7 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
   const [tables, setTables] = useState<DataTable[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [quota, setQuota] = useState<Quota | null>(null);
   const [saved, setSaved] = useState<SavedItem[]>([]); const [focus, setFocus] = useState("");
   const [fresh, setFresh] = useState<NewApiKey | null>(null);
   const [label, setLabel] = useState(""); const [scope, setScope] = useState<"rw" | "ro" | "auth">("rw");
@@ -43,6 +45,7 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
       const c: Record<string, number> = {};
       await Promise.all(s.tables.map(async (t) => { c[t.table] = (await dataApi.list(importId, t.table, { limit: 1 })).total; }));
       setCounts(c);
+      setQuota(await quotaApi.get(importId).catch(() => null));
     } catch (e) { setError(errMsg(e)); }
   }, [importId]);
   useEffect(() => { setFresh(null); setTab("overview"); void load(); }, [load]);
@@ -61,6 +64,21 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
 
       {tab === "overview" && (
         <div>
+          {quota && !quota.unlimited && quota.usage && (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <b>Utilisation de votre offre « {quota.plan} »</b> <span className="muted">(appels : mois de {quota.month})</span>
+              {quota.level === "full" && <p className="error" role="alert">Une limite est atteinte : certaines opérations sont refusées. Passez à l'offre supérieure.</p>}
+              {quota.level === "warn" && <p className="muted" style={{ color: "var(--warn)" }}>Attention : vous approchez d'une limite (80 % et plus).</p>}
+              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                {(Object.entries(quota.usage) as [string, QuotaItem][]).map(([k, u]) => (
+                  <div key={k}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>{QUOTA_LABEL[k] ?? k}</span><span>{u.used.toLocaleString("fr-FR")} / {u.limit === null ? "illimité" : u.limit.toLocaleString("fr-FR")}</span></div>
+                    {u.limit !== null && <div style={{ height: 6, borderRadius: 3, background: "var(--line)" }}><div style={{ height: 6, borderRadius: 3, width: `${Math.min(100, u.percent ?? 0)}%`, background: u.level === "full" ? "var(--err)" : u.level === "warn" ? "var(--warn)" : "var(--accent)" }} /></div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <p className="muted">Votre classeur est hébergé sur le serveur BERKIOS. Ses tables sont disponibles par une API générée automatiquement : lecture, ajout, modification et suppression, protégées contre les modifications simultanées.</p>
           <table style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead><tr><th style={{ textAlign: "left" }}>Table</th><th style={{ textAlign: "left" }}>Colonnes</th><th style={{ textAlign: "left" }}>Lignes</th><th /></tr></thead>
