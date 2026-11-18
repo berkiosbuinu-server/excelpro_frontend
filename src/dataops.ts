@@ -10,7 +10,7 @@ export type SavedValue = string | number | boolean | null;
 export type SavedParam = { name: string; optional?: boolean; col?: string; op?: string };
 export type SavedDef = {
   table: string; description?: string; op?: "update" | "insert";
-  columns?: string[]; groupBy?: string[]; aggregates?: { fn: string; col?: string; as?: string }[];
+  columns?: (string | { col: string; as?: string })[]; joins?: { table: string; type?: "left" | "inner"; on: { left: string; right: string }[] }[]; groupBy?: string[]; aggregates?: { fn: string; col?: string; as?: string }[];
   filters?: { col: string; op: string; value?: SavedValue; param?: string; optional?: boolean }[];
   orderBy?: string; direction?: "asc" | "desc"; limit?: number;
   set?: { col: string; value?: SavedValue; param?: string }[];
