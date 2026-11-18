@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { DataBrowser } from "./DataBrowser";
-import { dataApi, keysApi, serverBase, type ApiKey, type NewApiKey } from "./hosting";
-import { columnsOf, type DataTable } from "./dataops";
+import { Queries } from "./Queries";
+import { dataApi, keysApi, queriesApi, serverBase, type ApiKey, type NewApiKey } from "./hosting";
+import { columnsOf, type DataTable, type SavedItem } from "./dataops";
 import { curlExample, dataBase, KEY_PLACEHOLDER, powerQuery } from "./snippets";
-import { jsExample, pythonExample, routesOf, vbaApp, vbaUsage } from "./generate";
+import { jsExample, pythonExample, rootOf, routesOf, savedExample, vbaApp, vbaUsage } from "./generate";
 
-type Tab = "overview" | "tables" | "data" | "api" | "routes" | "examples";
+type Tab = "overview" | "tables" | "data" | "queries" | "api" | "routes" | "examples";
 const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Vue d'ensemble" }, { id: "tables", label: "Tables" }, { id: "data", label: "Données" },
+  { id: "overview", label: "Vue d'ensemble" }, { id: "tables", label: "Tables" }, { id: "data", label: "Données" }, { id: "queries", label: "Requêtes" },
   { id: "api", label: "API & clés" }, { id: "routes", label: "Routes" }, { id: "examples", label: "Exemples" },
 ];
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Erreur inconnue");
@@ -27,6 +28,7 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
   const [tables, setTables] = useState<DataTable[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [saved, setSaved] = useState<SavedItem[]>([]); const [focus, setFocus] = useState("");
   const [fresh, setFresh] = useState<NewApiKey | null>(null);
   const [label, setLabel] = useState(""); const [scope, setScope] = useState<"rw" | "ro">("rw");
   const [busy, setBusy] = useState(false);
@@ -35,8 +37,8 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
   const load = useCallback(async () => {
     try {
       setError("");
-      const [b, k, s] = await Promise.all([serverBase(), keysApi.list(importId), dataApi.schema(importId)]);
-      setBase(dataBase(b, importId)); setKeys(k); setTables(s.tables);
+      const [b, k, s, q] = await Promise.all([serverBase(), keysApi.list(importId), dataApi.schema(importId), queriesApi.list(importId)]);
+      setBase(dataBase(b, importId)); setKeys(k); setTables(s.tables); setSaved(q);
       const c: Record<string, number> = {};
       await Promise.all(s.tables.map(async (t) => { c[t.table] = (await dataApi.list(importId, t.table, { limit: 1 })).total; }));
       setCounts(c);
@@ -123,15 +125,17 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
         </div>
       )}
 
-      {tab === "routes" && <Routes base={base} tables={tables} importId={importId} onCopy={doCopy} />}
+      {tab === "queries" && <Queries importId={importId} tables={tables} items={saved} onChanged={load} onUse={(n) => { setFocus(n); setTab("examples"); }} />}
 
-      {tab === "examples" && <Examples base={base} tables={tables} fresh={fresh} onCopy={doCopy} goKeys={() => setTab("api")} />}
+      {tab === "routes" && <Routes base={base} tables={tables} items={saved} importId={importId} onCopy={doCopy} />}
+
+      {tab === "examples" && <Examples base={base} tables={tables} items={saved} focus={focus} fresh={fresh} onCopy={doCopy} goKeys={() => setTab("api")} />}
     </div>
   );
 }
 
-function Routes({ base, tables, importId, onCopy }: { base: string; tables: DataTable[]; importId: string; onCopy: (t: string, w: string) => void }) {
-  const routes = routesOf(tables);
+function Routes({ base, tables, items, importId, onCopy }: { base: string; tables: DataTable[]; items: SavedItem[]; importId: string; onCopy: (t: string, w: string) => void }) {
+  const routes = routesOf(tables, items), full = (r: { root?: boolean; path: string }) => (r.root ? rootOf(base) : base) + r.path;
   const groups = [...new Set(routes.map((r) => r.group))];
   const [out, setOut] = useState<{ id: string; text: string } | null>(null);
   const tryIt = async (id: string, table: string | null) => {
@@ -144,16 +148,16 @@ function Routes({ base, tables, importId, onCopy }: { base: string; tables: Data
       <p className="muted">Routes disponibles, générées à partir de vos tables. Adresse de base : <code>{base}</code></p>
       {groups.map((g) => (
         <div key={g} style={{ marginBottom: 14 }}>
-          <h4 style={{ margin: "8px 0" }}>{g === "Général" ? "Général" : `Table « ${g} »`}</h4>
+          <h4 style={{ margin: "8px 0" }}>{g === "Général" || g === "Requêtes enregistrées" ? g : `Table « ${g} »`}</h4>
           {routes.filter((r) => r.group === g).map((r, i) => {
-            const id = `${g}-${i}`, testable = r.method === "GET" && (r.path === "" || (r.path.startsWith("/") && r.path.includes("?limit=50")));
+            const id = `${g}-${i}`, testable = !r.root && r.method === "GET" && (r.path === "" || (r.path.startsWith("/") && r.path.includes("?limit=50")));
             return (
               <div key={id} style={{ borderTop: "1px solid var(--line)", padding: "6px 0" }}>
                 <span style={{ ...mono, color: "#fff", background: color[r.method], padding: "1px 6px", borderRadius: 4, marginRight: 8 }}>{r.method}</span>
                 <code style={{ wordBreak: "break-all" }}>{r.path || "/"}</code>
                 <div className="muted">{r.title}</div>
                 {r.body && <code style={{ display: "block", ...mono }}>{r.body}</code>}
-                <button onClick={() => onCopy(base + r.path, "Adresse")}>Copier l'adresse</button>{" "}
+                <button onClick={() => onCopy(full(r), "Adresse")}>Copier l'adresse</button>{" "}
                 {testable && <button onClick={() => void tryIt(id, r.path === "" ? null : g)}>Essayer</button>}
                 {out?.id === id && <pre style={{ ...mono, maxHeight: 240, overflow: "auto", background: "var(--soft, #f4f7f5)", padding: 8 }}>{out.text}</pre>}
               </div>
@@ -166,14 +170,15 @@ function Routes({ base, tables, importId, onCopy }: { base: string; tables: Data
 }
 
 type Lang = "pq" | "vba" | "curl" | "js" | "py";
-function Examples({ base, tables, fresh, onCopy, goKeys }: { base: string; tables: DataTable[]; fresh: NewApiKey | null; onCopy: (t: string, w: string) => void; goKeys: () => void }) {
+function Examples({ base, tables, items, focus, fresh, onCopy, goKeys }: { base: string; tables: DataTable[]; items: SavedItem[]; focus: string; fresh: NewApiKey | null; onCopy: (t: string, w: string) => void; goKeys: () => void }) {
   const [lang, setLang] = useState<Lang>("vba");
   const [table, setTable] = useState("");
-  const t = table || tables[0]?.table || "";
+  useEffect(() => { if (focus) setTable(`q:${focus}`); }, [focus]);
+  const sel = table || tables[0]?.table || "", it = sel.startsWith("q:") ? items.find((x) => x.name === sel.slice(2)) : undefined, t = it ? it.name : sel;
   const key = fresh?.key ?? KEY_PLACEHOLDER;
-  const code = !base || !t ? "" : lang === "pq" ? powerQuery(base, t, key) : lang === "curl" ? curlExample(base, t, key) : lang === "js" ? jsExample(base, t, key) : lang === "py" ? pythonExample(base, t, key) : vbaApp(base, key, tables);
+  const code = !base || !t ? "" : lang === "vba" ? vbaApp(base, key, tables, items) : it ? savedExample(lang, base, it, key) : lang === "pq" ? powerQuery(base, t, key) : lang === "curl" ? curlExample(base, t, key) : lang === "js" ? jsExample(base, t, key) : pythonExample(base, t, key);
   const help: Record<Lang, string> = {
-    vba: "Module VBA généré pour VOS tables : une fonction par table et par action, avec les noms de vos colonnes (ex. Vente_Ajouter numero:=\"T1\", ttc:=1160). Téléchargez-le puis, dans Excel : Alt+F11 → Fichier → Importer un fichier. Enregistrez ensuite en .xlsm. Aucun code à écrire pour commencer : lancez Berkios_ChargerTout.",
+    vba: "Module VBA généré pour VOS tables, requêtes et actions : une fonction par table et par opération, avec les noms de vos colonnes (ex. Vente_Ajouter numero:=\"T1\", ttc:=1160), plus Requete_… et Action_… pour vos routes personnalisées. Téléchargez-le puis, dans Excel : Alt+F11 → Fichier → Importer un fichier. Enregistrez ensuite en .xlsm. Aucun code à écrire pour commencer : lancez Berkios_ChargerTout.",
     pq: "Excel : Données → Obtenir des données → Autres sources → Requête vide → Éditeur avancé : collez, puis Fermer et charger. Si Excel demande des identifiants, choisissez « Anonyme ».",
     curl: "Pour tester depuis un terminal (PowerShell : utilisez curl.exe).", js: "Pour une page web ou une application Node 18+.", py: "Pour un script Python 3 (aucune bibliothèque à installer).",
   };
@@ -181,7 +186,7 @@ function Examples({ base, tables, fresh, onCopy, goKeys }: { base: string; table
     <div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
         {([["vba", "Excel — module VBA"], ["pq", "Excel — Power Query"], ["js", "JavaScript"], ["py", "Python"], ["curl", "curl"]] as [Lang, string][]).map(([id, l]) => <button key={id} className={lang === id ? "primary" : ""} onClick={() => setLang(id)}>{l}</button>)}
-        {lang !== "vba" && <select value={t} onChange={(e) => setTable(e.target.value)}>{tables.map((x) => <option key={x.table} value={x.table}>{x.table}</option>)}</select>}
+        {lang !== "vba" && <select value={sel} onChange={(e) => setTable(e.target.value)}>{tables.map((x) => <option key={x.table} value={x.table}>Table : {x.table}</option>)}{items.filter((x) => x.valid).map((x) => <option key={`q:${x.name}`} value={`q:${x.name}`}>{x.kind === "query" ? "Requête" : "Action"} : {x.name}</option>)}</select>}
       </div>
       <p className="muted">{help[lang]}</p>
       {key === KEY_PLACEHOLDER && <p className="warn">Aucune clé n'est insérée. <button onClick={goKeys}>Créer une clé</button> puis revenez ici : elle sera ajoutée automatiquement. Sans cela, remplacez {KEY_PLACEHOLDER} par votre clé.</p>}

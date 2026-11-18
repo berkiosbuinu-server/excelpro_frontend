@@ -1,7 +1,7 @@
 // Génération automatique, pour CHAQUE classeur hébergé, du code qui l'utilise : module VBA typé (vrais noms de tables et de colonnes),
 // liste des routes, exemples JavaScript / Python. Aucun travail de développement côté entreprise : on copie ou on télécharge.
 import { vbaModule } from "./snippets";
-import { columnsOf, isDateType, isNumericType, type DataTable } from "./dataops";
+import { columnsOf, isDateType, isNumericType, type DataTable, type SavedItem } from "./dataops";
 
 /** Mots réservés ou noms de fonctions VBA : un paramètre qui porte ce nom reçoit un « _ » final (type -> type_). */
 const VBA_RESERVED = new Set(("and as boolean byref byte byval call case const currency date declare dim do double each else elseif end enum eqv erase error event exit false for friend function get global gosub goto if imp implements in integer is let lib like long loop lset me mod new next not nothing null object on option optional or paramarray preserve private property public raiseevent redim rem resume return rset select set single static stop string sub then to true type typeof until variant wend while with withevents xor name time timer now abs asc chr format left right mid len val str instr replace trim ucase lcase cint clng cdbl cdate csng cstr cbool input output print open close seek write line array table range cells sheets").split(" "));
@@ -64,8 +64,85 @@ function tableVba(t: DataTable): string {
   return out.join("\n");
 }
 
+
+// ───────────── Requêtes et actions enregistrées ─────────────
+const pascal = (name: string) => name.split(/[^a-z0-9]+/i).filter(Boolean).map(cap).join("");
+/** Racine du classeur (l'adresse de base de l'API de données sans son « /data » final). */
+export const rootOf = (base: string) => base.replace(/\/data\/?$/, "");
+/** Paramètres d'un élément : obligatoires d'abord (VBA interdit un argument obligatoire après un facultatif). */
+const orderedParams = (it: SavedItem) => [...it.params].sort((a, b) => Number(Boolean(a.optional)) - Number(Boolean(b.optional)));
+const note = (it: SavedItem) => (it.def.description ? it.def.description.replace(/[\r\n]+/g, " ") : it.kind === "query" ? "Requete enregistree" : "Action enregistree");
+
+function queryVba(it: SavedItem): string {
+  const N = pascal(it.name), ps = orderedParams(it), url = `"~/q/${encodeURIComponent(it.name)}"`;
+  const params = ps.map((p) => (p.optional ? `Optional ${vbaIdent(p.name)} As Variant` : `${vbaIdent(p.name)} As Variant`));
+  const qsLines = ps.map((p) => (p.optional ? `    If Not IsMissing(${vbaIdent(p.name)}) Then bk_q = BK_Qs(bk_q, "${p.name}", ${vbaIdent(p.name)})` : `    bk_q = BK_Qs(bk_q, "${p.name}", ${vbaIdent(p.name)})`));
+  const doc = ps.length ? `Parametres : ${ps.map((p) => p.name + (p.optional ? " (facultatif)" : "")).join(", ")}.` : "Sans parametre.";
+  return [
+    `' ===== Requete "${it.name}" : ${note(it)}. ${doc} =====`,
+    `' Remplit une feuille a partir de la cellule bk_cible.`,
+    signature(`Public Sub Requete_${N}`, ["ByVal bk_cible As Range", ...params]),
+    '    Dim bk_q As String: bk_q = "?format=csv"', ...qsLines,
+    `    BK_LoadPath ${url} & bk_q, bk_cible`, "End Sub", "",
+    `' Renvoie la premiere valeur du resultat (ideal pour un total ou un nombre).`,
+    signature(`Public Function Requete_${N}_Valeur`, params) + " As Variant",
+    '    Dim bk_q As String: bk_q = "?format=csv"', ...qsLines,
+    "    Dim bk_d As Variant", `    bk_d = BK_ParseCsv(BK_Request("GET", ${url} & bk_q, ""))`,
+    "    If IsEmpty(bk_d) Then Exit Function", "    If UBound(bk_d, 1) < 2 Then Exit Function",
+    `    If BK_LooksNumeric(CStr(bk_d(2, 1))) Then Requete_${N}_Valeur = Val(bk_d(2, 1)) Else Requete_${N}_Valeur = bk_d(2, 1)`, "End Function", "",
+  ].join("\n");
+}
+
+function actionVba(it: SavedItem): string {
+  const N = pascal(it.name), ps = orderedParams(it), update = it.def.op !== "insert", url = `"~/act/${encodeURIComponent(it.name)}"`;
+  const params = [...(update ? ["ByVal bk_cle As String"] : []), ...ps.map((p) => `${vbaIdent(p.name)} As Variant`), ...(update ? ["Optional bk_version As Long = 0"] : [])];
+  const body = update ? `"{""key"":" & BK_JsonString(bk_cle) & ",""expectedVersion"":" & bk_version & ",""params"":{" & bk_p & "}}"` : `"{""params"":{" & bk_p & "}}"`;
+  return [
+    `' ===== Action "${it.name}" : ${note(it)}. ${update ? `Modifie la ligne de cle bk_cle (table ${it.def.table}).` : `Ajoute une ligne (table ${it.def.table}).`} =====`,
+    `' Renvoie la ligne obtenue (JSON) : lire un champ avec Berkios_Champ(resultat, "colonne").`,
+    signature(`Public Function Action_${N}`, params) + " As String",
+    "    Dim bk_p As String", ...ps.map((p) => `    bk_p = BK_Add(bk_p, "${p.name}", ${vbaIdent(p.name)})`),
+    ...(update ? [`    If bk_version = 0 Then bk_version = BK_Version("${it.def.table}", bk_cle)`] : []),
+    `    Action_${N} = BK_Request("POST", ${url}, ${body})`, "End Function", "",
+  ].join("\n");
+}
+
+/** Exemples (Power Query, curl, JavaScript, Python) d'une requête ou d'une action enregistrée. */
+export function savedExample(lang: "pq" | "curl" | "js" | "py", base: string, it: SavedItem, key: string): string {
+  const root = rootOf(base), path = `/${it.kind === "query" ? "q" : "act"}/${encodeURIComponent(it.name)}`, ps = it.params;
+  const sample = (n: string) => `${n}=valeur`, qs = ps.map((p) => sample(p.name)).join("&");
+  const body = it.def.op === "insert" ? `{"params":{${ps.map((p) => `"${p.name}":"valeur"`).join(",")}}}` : `{"key":"CLE_DE_LA_LIGNE","expectedVersion":1,"params":{${ps.map((p) => `"${p.name}":"valeur"`).join(",")}}}`;
+  if (lang === "pq") {
+    if (it.kind !== "query") return "// Power Query ne fait que lire : utilisez le VBA, curl, JavaScript ou Python pour une action.";
+    const query = ["format = \"csv\"", ...ps.map((p) => `${p.name} = "valeur"`)].join(", ");
+    return `let
+    Source = Csv.Document(
+        Web.Contents("${root}${path}", [Headers = [Authorization = "Bearer ${key}"], Query = [${query}]]),
+        [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+    Entetes = Table.PromoteHeaders(Source, [PromoteAllScalars = true])
+in
+    Entetes`;
+  }
+  if (lang === "curl") return it.kind === "query" ? `curl -H "Authorization: Bearer ${key}" "${root}${path}${qs ? "?" + qs : ""}"`
+    : `curl -X POST -H "Authorization: Bearer ${key}" -H "Content-Type: application/json" \\\n  -d '${body}' "${root}${path}"`;
+  if (lang === "js") return `const res = await fetch("${root}${path}${it.kind === "query" && qs ? "?" + qs : ""}", {
+  method: "${it.kind === "query" ? "GET" : "POST"}",
+  headers: { Authorization: "Bearer ${key}"${it.kind === "action" ? ', "Content-Type": "application/json"' : ""} },${it.kind === "action" ? `\n  body: JSON.stringify(${body}),` : ""}
+});
+const json = await res.json();
+if (!res.ok) throw new Error(json.error?.message ?? res.status);
+console.log(json.data);`;
+  return `import json, urllib.request
+
+req = urllib.request.Request("${root}${path}${it.kind === "query" && qs ? "?" + qs : ""}", method="${it.kind === "query" ? "GET" : "POST"}",
+    headers={"Authorization": "Bearer ${key}", "Content-Type": "application/json"}${it.kind === "action" ? `,\n    data=json.dumps(${body}).encode()` : ""})
+with urllib.request.urlopen(req) as r:
+    print(json.load(r)["data"])`;
+}
+
 /** Module VBA complet pour ce classeur : socle réseau + fonctions nommées d'après vos tables. */
-export function vbaApp(base: string, key: string, tables: DataTable[]): string {
+export function vbaApp(base: string, key: string, tables: DataTable[], items: SavedItem[] = []): string {
+  const valid = items.filter((i) => i.valid);
   const all = [
     "", "' ================== FONCTIONS GENEREES POUR VOS TABLES ==================",
     "' Les arguments portent le nom des colonnes : Vente_Ajouter numero:=\"T1\", ttc:=1160   (arguments nommes, ordre libre).",
@@ -73,6 +150,9 @@ export function vbaApp(base: string, key: string, tables: DataTable[]): string {
     "' Charge toutes les tables dans des feuilles BK_<table> (a lancer a l'ouverture ou depuis un bouton).",
     "Public Sub Berkios_ChargerTout()", ...tables.map((t) => `    BK_LoadInSheet "${t.table}"`), "End Sub", "",
     ...tables.map(tableVba),
+    ...(valid.length ? ["", "' ================== REQUETES ET ACTIONS ENREGISTREES ==================", ""] : []),
+    ...valid.map((i) => (i.kind === "query" ? queryVba(i) : actionVba(i))),
+    "' Lit un champ dans le resultat JSON d'une action.", "Public Function Berkios_Champ(ByVal bk_json As String, ByVal bk_champ As String) As String", "    Berkios_Champ = BK_JsonField(bk_json, bk_champ)", "End Function", "",
   ].join("\n");
   return toAscii(vbaModule(base, key).replace(/\s+$/, "") + "\n" + all + "\n").replace(/\r?\n/g, "\r\n");
 }
@@ -98,13 +178,13 @@ ${extra[0] ? `    MsgBox ligne("${extra[0].name}")\n    ${P}_Modifier cle, ${vba
 End Sub`);
 }
 
-export type Route = { group: string; method: "GET" | "POST" | "PUT" | "DELETE"; path: string; title: string; body?: string };
+export type Route = { group: string; method: "GET" | "POST" | "PUT" | "DELETE"; path: string; title: string; body?: string; root?: boolean };
 const sampleJson = (t: DataTable): string => {
   const rows = columnsOf(t).filter((c) => !c.readOnly).slice(0, 4).map((c) => `"${c.name}": ${isNumericType(c.type) ? "0" : '"valeur"'}`);
   return `{ "values": { ${rows.join(", ")} } }`;
 };
 /** Toutes les routes disponibles pour ce classeur (relatives à l'adresse de base). */
-export function routesOf(tables: DataTable[]): Route[] {
+export function routesOf(tables: DataTable[], items: SavedItem[] = []): Route[] {
   const r: Route[] = [{ group: "Général", method: "GET", path: "", title: "Liste des tables et de leurs colonnes" }];
   for (const t of tables) {
     const p = `/${t.table}`;
@@ -116,6 +196,12 @@ export function routesOf(tables: DataTable[]): Route[] {
       { group: t.table, method: "PUT", path: `${p}/{${t.primaryKey}}`, title: "Modifier une ligne (version obligatoire)", body: `{ "expectedVersion": 1, "values": { … } }` },
       { group: t.table, method: "DELETE", path: `${p}/{${t.primaryKey}}`, title: "Supprimer une ligne (version obligatoire)", body: `{ "expectedVersion": 1 }` },
     );
+  }
+  for (const it of items.filter((i) => i.valid)) {
+    const ps = it.params, group = "Requêtes enregistrées";
+    if (it.kind === "query") r.push({ group, root: true, method: "GET", path: `/q/${it.name}${ps.length ? "?" + ps.map((p) => `${p.name}=<valeur>`).join("&") : ""}`, title: `${note(it)} — ajoutez ?format=csv pour Excel` });
+    else r.push({ group, root: true, method: "POST", path: `/act/${it.name}`, title: `${note(it)} (${it.def.op === "insert" ? "ajoute une ligne" : "modifie une ligne"})`,
+      body: `{ ${it.def.op === "insert" ? "" : '"key": "…", "expectedVersion": 1, '}"params": { ${ps.map((p) => `"${p.name}": …`).join(", ")} } }` });
   }
   return r;
 }

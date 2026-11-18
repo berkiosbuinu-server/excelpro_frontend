@@ -1,7 +1,7 @@
 // Client de l'hébergement BERKIOS (https://server.berkios.online), appelé DIRECTEMENT depuis le navigateur.
 // Le jeton est émis par le backend ExcelPro (signé, court, limité à l'entreprise du compte) : aucun secret n'est ici.
 import { api } from "./api";
-import type { DataRow, DataTable, Scalar } from "./dataops";
+import type { DataRow, DataTable, SavedDef, SavedItem, Scalar } from "./dataops";
 
 export type Cap = { analyzer: boolean; postgres: { configured: boolean; reachable: boolean; error?: string }; maxUploadBytes: number; formats: string[] };
 export type ImportRow = { id: string; tenant: string; fileName: string; state: string; error: string | null; createdAt: string; updatedAt: string };
@@ -91,6 +91,13 @@ export const keysApi = {
   list: (id: string) => call<ApiKey[]>("GET", `/imports/${id}/keys`),
   create: (id: string, label: string, scope: "rw" | "ro") => call<NewApiKey>("POST", `/imports/${id}/keys`, { json: { label, scope } }),
   revoke: (id: string, keyId: string) => call<{ id: string; revoked: boolean }>("DELETE", `/imports/${id}/keys/${keyId}`),
+};
+/** Requêtes (lecture, calculs) et actions (écriture) enregistrées : routes personnalisées du classeur, créées sans code. */
+export const queriesApi = {
+  list: (id: string) => call<SavedItem[]>("GET", `/imports/${id}/queries`),
+  save: (id: string, name: string, kind: "query" | "action", def: SavedDef) => call<SavedItem>("POST", `/imports/${id}/queries`, { json: { name, kind, def } }),
+  remove: (id: string, name: string) => call<{ name: string; deleted: boolean }>("DELETE", `/imports/${id}/queries/${enc(name)}`),
+  preview: (id: string, def: SavedDef, params: Record<string, string>) => call<DataPage>("POST", `/imports/${id}/queries/preview`, { json: { def, params } }),
 };
 export const serverBase = async () => (await connection()).url;
 

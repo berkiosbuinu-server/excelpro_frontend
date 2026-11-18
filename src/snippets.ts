@@ -46,8 +46,13 @@ Private Const BK_KEY As String = "{{KEY}}"
 ' --------------------------------------------------------------------------------------------
 
 Public Sub BK_LoadTable(ByVal table As String, ByVal target As Range)
+    BK_LoadPath "/" & BK_UrlEncode(table) & "?format=csv", target
+End Sub
+
+' Charge dans une feuille le CSV renvoye par une route (table ou requete enregistree).
+Public Sub BK_LoadPath(ByVal path As String, ByVal target As Range)
     Dim data As Variant, r As Long, c As Long
-    data = BK_ParseCsv(BK_Request("GET", "/" & BK_UrlEncode(table) & "?format=csv", "")) ' lignes x colonnes, 1ère ligne = en-têtes
+    data = BK_ParseCsv(BK_Request("GET", path, "")) ' lignes x colonnes, 1ère ligne = en-têtes
     If IsEmpty(data) Then Exit Sub
     For r = 2 To UBound(data, 1)
         For c = 1 To UBound(data, 2)
@@ -82,7 +87,12 @@ Private Function BK_Request(ByVal method As String, ByVal path As String, ByVal 
     Dim http As Object, txt As String
     Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
     http.setTimeouts 10000, 10000, 60000, 120000
-    http.Open method, BK_URL & path, False
+    ' Un chemin qui commence par ~ part de la racine du classeur (requetes /q/ et actions /act/) au lieu de /data.
+    If Left$(path, 1) = "~" Then
+        http.Open method, Left$(BK_URL, Len(BK_URL) - 5) & Mid$(path, 2), False
+    Else
+        http.Open method, BK_URL & path, False
+    End If
     http.setRequestHeader "Authorization", "Bearer " & BK_KEY
     http.setRequestHeader "Accept", "application/json"
     If Len(body) > 0 Then
@@ -182,6 +192,23 @@ End Function
 Private Function BK_Add(ByVal j As String, ByVal field As String, ByVal v As Variant) As String
     If Len(j) > 0 Then j = j & ","
     BK_Add = j & BK_JsonString(field) & ":" & BK_JsonValue(v)
+End Function
+
+' Ajoute &nom=valeur a une chaine de requete (nombres avec un point, dates AAAA-MM-JJ).
+Private Function BK_Qs(ByVal qs As String, ByVal nom As String, ByVal v As Variant) As String
+    Dim t As String
+    If IsNull(v) Or IsEmpty(v) Then
+        BK_Qs = qs: Exit Function
+    ElseIf VarType(v) = vbDate Then
+        t = Format$(v, "yyyy-mm-dd")
+    ElseIf VarType(v) = vbString Then
+        t = v
+    ElseIf IsNumeric(v) Then
+        t = Trim$(Str$(v))
+    Else
+        t = CStr(v)
+    End If
+    BK_Qs = qs & "&" & BK_UrlEncode(nom) & "=" & BK_UrlEncode(t)
 End Function
 
 ' Texte ISO du serveur (2026-01-05 ou 2026-01-05T08:30:00Z, heure UTC) -> Date ; vide si absent.
