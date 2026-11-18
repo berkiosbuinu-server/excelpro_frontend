@@ -30,7 +30,7 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [saved, setSaved] = useState<SavedItem[]>([]); const [focus, setFocus] = useState("");
   const [fresh, setFresh] = useState<NewApiKey | null>(null);
-  const [label, setLabel] = useState(""); const [scope, setScope] = useState<"rw" | "ro">("rw");
+  const [label, setLabel] = useState(""); const [scope, setScope] = useState<"rw" | "ro" | "auth">("rw");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(""); const [info, setInfo] = useState("");
 
@@ -98,20 +98,20 @@ export function Dashboard({ importId, fileName }: { importId: string; fileName: 
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <code style={{ wordBreak: "break-all" }}>{base || "…"}</code><button disabled={!base} onClick={() => void doCopy(base, "Adresse")}>Copier</button>
           </div>
-          <p className="muted">Chaque requête envoie la clé dans l'en-tête <code>Authorization: Bearer &lt;clé&gt;</code>. Une clé ne donne accès qu'à ce classeur.</p>
+          <p className="muted">Pour un classeur distribué à plusieurs utilisateurs, utilisez une clé « Connexion seulement » : elle ne peut que vérifier un mot de passe (sur le serveur) ; après connexion, l'utilisateur reçoit une session temporaire pour lire et écrire. Chaque requête envoie la clé dans l'en-tête <code>Authorization: Bearer &lt;clé&gt;</code>. Une clé ne donne accès qu'à ce classeur.</p>
           <h4 style={{ marginBottom: 4 }}>Clés d'API</h4>
           {keys.length === 0 ? <p className="muted">Aucune clé. Créez-en une ci-dessous.</p> : (
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
               <thead><tr><th style={{ textAlign: "left" }}>Nom</th><th style={{ textAlign: "left" }}>Droits</th><th style={{ textAlign: "left" }}>Créée</th><th style={{ textAlign: "left" }}>Dernier usage</th><th /></tr></thead>
               <tbody>{keys.map((k) => (
-                <tr key={k.id}><td>{k.label}</td><td>{k.scope === "rw" ? "Lecture et écriture" : "Lecture seule"}</td><td>{fmt(k.createdAt)}</td><td>{fmt(k.lastUsedAt)}</td>
+                <tr key={k.id}><td>{k.label}</td><td>{k.scope === "rw" ? "Lecture et écriture" : k.scope === "ro" ? "Lecture seule" : "Connexion seulement"}</td><td>{fmt(k.createdAt)}</td><td>{fmt(k.lastUsedAt)}</td>
                   <td><button disabled={busy} onClick={() => { if (window.confirm(`Révoquer la clé « ${k.label} » ? Tout ce qui l'utilise cessera de fonctionner immédiatement.`)) void act(async () => { await keysApi.revoke(importId, k.id); if (fresh?.id === k.id) setFresh(null); setInfo("Clé révoquée."); await load(); }); }}>Révoquer</button></td></tr>
               ))}</tbody>
             </table>
           )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
             <input placeholder="Nom (ex. Facture automatisée)" value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} />
-            <select value={scope} onChange={(e) => setScope(e.target.value as "rw" | "ro")}><option value="rw">Lecture et écriture</option><option value="ro">Lecture seule</option></select>
+            <select value={scope} onChange={(e) => setScope(e.target.value as "rw" | "ro" | "auth")}><option value="rw">Lecture et écriture</option><option value="ro">Lecture seule</option><option value="auth">Connexion seulement (recommandé pour un classeur distribué)</option></select>
             <button className="primary" disabled={busy} onClick={() => void act(async () => { const k = await keysApi.create(importId, label.trim() || "Clé d'API", scope); setFresh(k); setLabel(""); await load(); })}>+ Créer une clé</button>
           </div>
           {fresh && (

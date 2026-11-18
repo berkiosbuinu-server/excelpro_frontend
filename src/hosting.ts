@@ -84,12 +84,12 @@ export const dataApi = {
   remove: (id: string, table: string, key: string, expectedVersion: number) => call<{ deleted: boolean }>("DELETE", `/imports/${id}/data/${enc(table)}/${enc(key)}`, { json: { expectedVersion } }),
 };
 
-export type ApiKey = { id: string; label: string; scope: "rw" | "ro"; createdAt: string; lastUsedAt: string | null };
+export type ApiKey = { id: string; label: string; scope: "rw" | "ro" | "auth"; createdAt: string; lastUsedAt: string | null };
 export type NewApiKey = ApiKey & { key: string };
 /** Clés d'API d'un classeur (pour Power Query, macros VBA, applications). Le secret n'est renvoyé qu'à la création. */
 export const keysApi = {
   list: (id: string) => call<ApiKey[]>("GET", `/imports/${id}/keys`),
-  create: (id: string, label: string, scope: "rw" | "ro") => call<NewApiKey>("POST", `/imports/${id}/keys`, { json: { label, scope } }),
+  create: (id: string, label: string, scope: "rw" | "ro" | "auth") => call<NewApiKey>("POST", `/imports/${id}/keys`, { json: { label, scope } }),
   revoke: (id: string, keyId: string) => call<{ id: string; revoked: boolean }>("DELETE", `/imports/${id}/keys/${keyId}`),
 };
 /** Requêtes (lecture, calculs) et actions (écriture) enregistrées : routes personnalisées du classeur, créées sans code. */

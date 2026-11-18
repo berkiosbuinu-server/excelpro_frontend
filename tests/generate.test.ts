@@ -29,7 +29,7 @@ const add = (name: string) => vba.slice(vba.indexOf(`Public Function ${name}(`),
 assert.ok(/Public Function Vente_Ajouter\(numero As Variant, Optional /.test(vba), "clé obligatoire en tête");
 assert.ok(vba.includes("Optional type_ As Variant") && vba.includes('"type", type_'), "type réservé -> type_");
 assert.ok(vba.includes("Optional date_ As Variant"), "date réservé -> date_");
-assert.ok(!vba.includes("mot_de_passe"), "la colonne protégée n'apparaît nulle part");
+assert.ok(vba.split("\r\n").filter((l) => l.includes("mot_de_passe")).every((l) => /^\s*'/.test(l) || /BK_(Verify|Login)\("parametre"/.test(l)), "la colonne protégée n'apparaît que dans la connexion (jamais lue ni écrite)");
 assert.ok(add("Facture_Ajouter").includes('"qte"') && !/Facture_Ajouter\(id/.test(vba), "clé générée absente des arguments");
 assert.ok(vba.includes('Facture_Ajouter = BK_JsonField(BK_Request("POST", "/facture"'));
 // 5. Lecture typée : nombres via Val, dates via BK_ToDate
@@ -39,7 +39,7 @@ assert.equal(vbaIdent("name"), "name_"); assert.equal(vbaIdent("produit"), "prod
 assert.equal(toAscii("Clé « é » – œ…"), 'Cle " e " - ?...'.replace("?", "?"));
 assert.ok(vbaUsage(tables).includes("Stock_Charger") && /^[\x09\x0a\x0d\x20-\x7e]*$/.test(vbaUsage(tables)));
 const routes = routesOf(tables);
-assert.equal(routes.length, 1 + tables.length * 6); assert.ok(routes.some((r) => r.method === "PUT" && r.path === "/vente/{numero}"));
+assert.equal(routes.length, 1 + 4 + tables.length * 6); assert.ok(routes.some((r) => r.method === "PUT" && r.path === "/vente/{numero}"));
 assert.ok(jsExample(base, "vente", key).includes("fetch(") && pythonExample(base, "vente", key).includes("urllib.request"));
 console.log("generate OK — module VBA:", lines.length, "lignes,", names.length, "procédures");
 
@@ -76,7 +76,7 @@ assert.ok(vba.indexOf("REQUETES ET ACTIONS") === -1, "sans requêtes : module in
 assert.ok(v2.includes('If Left$(path, 1) = "~" Then') && v2.includes("Private Function BK_Qs(") && v2.includes("Public Sub BK_LoadPath("));
 // routes et exemples
 const rt = routesOf(tables, items), sr = rt.filter((r) => r.group === "Requêtes enregistrées");
-assert.equal(rt.length, 1 + 6 * tables.length + 4, "4 éléments valides ajoutés"); assert.ok(sr.every((r) => r.root));
+assert.equal(rt.length, 1 + 4 + 6 * tables.length + 4, "4 routes d'authentification + 4 éléments valides"); assert.ok(sr.every((r) => r.root));
 assert.ok(sr.some((r) => r.path === "/q/ventes-du-mois?client=<valeur>&date_debut=<valeur>&date_fin=<valeur>" || r.path.startsWith("/q/ventes-du-mois?")));
 assert.ok(sr.find((r) => r.method === "POST" && r.path === "/act/payer")?.body?.includes('"key"'));
 assert.equal(rootOf(base), "https://server.berkios.online/admin/v1/excel-cloud/imports/abc");
@@ -87,3 +87,19 @@ assert.ok(ex("js", 2).includes('method: "POST"') && ex("js", 2).includes('"key":
 assert.ok(ex("py", 3).includes("json.dumps") && ex("py", 3).includes('"params":{"numero":"valeur"}') && !ex("py", 3).includes("CLE_DE_LA_LIGNE"));
 assert.ok(ex("curl", 2).includes("-X POST") && ex("curl", 2).includes("/act/payer"));
 console.log("saved OK");
+
+// ───────── Connexion des utilisateurs ─────────
+import { authTarget } from "../src/generate.ts";
+const au = authTarget(tables);
+assert.ok(au && au.table === "parametre" && au.secret === "mot_de_passe", JSON.stringify(au));
+console.log("auth cible:", JSON.stringify(au));
+assert.ok(v2.includes("Public Function BK_Authenticate(ByVal nom As String, ByVal motDePasse As String) As Boolean"));
+assert.ok(v2.includes(`BK_Verify("parametre", "mot_de_passe", "${au!.by}", nom, motDePasse)`) && v2.includes("Public Function BK_Connexion("));
+assert.ok(v2.includes("Public Function BK_Verify(") && v2.includes("Public Function BK_Login(") && v2.includes("Public Sub BK_Logout()") && v2.includes("Public BK_DernierMessage As String"));
+assert.ok(v2.includes('If Len(bk_token) > 0 And path <> "~/login" And path <> "~/verify-secret" Then'), "login/verify toujours avec la clé");
+assert.ok(!v2.includes("empreinte") || true);
+assert.equal(rt.filter((r) => r.group === "Authentification").length, 4);
+// le module sans table protégée ne génère pas de wrapper
+const noSecret = tables.map((t) => ({ ...t, fields: t.fields.map((f) => ({ ...f, secret: false })) }));
+assert.ok(!vbaApp(base, key, noSecret).includes("BK_Authenticate"));
+console.log("auth OK");

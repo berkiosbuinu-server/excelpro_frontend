@@ -73,6 +73,18 @@ export const rootOf = (base: string) => base.replace(/\/data\/?$/, "");
 const orderedParams = (it: SavedItem) => [...it.params].sort((a, b) => Number(Boolean(a.optional)) - Number(Boolean(b.optional)));
 const note = (it: SavedItem) => (it.def.description ? it.def.description.replace(/[\r\n]+/g, " ") : it.kind === "query" ? "Requete enregistree" : "Action enregistree");
 
+function authVba(tables: DataTable[]): string[] {
+  const a = authTarget(tables); if (!a) return [];
+  return ["", "' ================== CONNEXION DES UTILISATEURS ==================",
+    `' Le mot de passe est verifie par le serveur (table ${a.table}, colonne ${a.secret}) : Excel ne le compare jamais et ne recoit jamais son empreinte.`,
+    "' If BK_Authenticate(TextBoxNom.Value, TextBoxMotDePasse.Value) Then ... Else MsgBox BK_DernierMessage", "",
+    "Public Function BK_Authenticate(ByVal nom As String, ByVal motDePasse As String) As Boolean",
+    `    BK_Authenticate = BK_Verify("${a.table}", "${a.secret}", "${a.by}", nom, motDePasse)`, "End Function", "",
+    "' Comme BK_Authenticate, mais ouvre une session (jeton qui expire) : les appels suivants se font avec l'identite de l'utilisateur.",
+    "Public Function BK_Connexion(ByVal nom As String, ByVal motDePasse As String) As Boolean",
+    `    BK_Connexion = BK_Login("${a.table}", "${a.secret}", "${a.by}", nom, motDePasse${a.active ? `, "${a.active}"` : ""})`, "End Function", ""];
+}
+
 function queryVba(it: SavedItem): string {
   const N = pascal(it.name), ps = orderedParams(it), url = `"~/q/${encodeURIComponent(it.name)}"`;
   const params = ps.map((p) => (p.optional ? `Optional ${vbaIdent(p.name)} As Variant` : `${vbaIdent(p.name)} As Variant`));
@@ -140,6 +152,16 @@ with urllib.request.urlopen(req) as r:
     print(json.load(r)["data"])`;
 }
 
+/** Table d'utilisateurs probable : celle qui a un champ protégé (mot de passe), de préférence nommée comme un compte. */
+export function authTarget(tables: DataTable[]): { table: string; secret: string; by: string; active: string } | null {
+  const withSecret = tables.filter((t) => t.fields.some((f) => f.secret));
+  const t = withSecret.find((x) => /param|user|utilisateur|compte|login|membre|acces/i.test(x.table)) ?? withSecret[0];
+  if (!t) return null;
+  const open = t.fields.filter((f) => !f.secret);
+  const by = open.find((f) => /^(nom|identifiant|login|username|user|email|mail)$/i.test(f.name))?.name ?? (t.generatedPrimaryKey ? open[0]?.name : t.primaryKey) ?? t.primaryKey;
+  return { table: t.table, secret: t.fields.find((f) => f.secret)!.name, by, active: open.find((f) => /^(actif|active|enabled)$/i.test(f.name))?.name ?? "" };
+}
+
 /** Module VBA complet pour ce classeur : socle réseau + fonctions nommées d'après vos tables. */
 export function vbaApp(base: string, key: string, tables: DataTable[], items: SavedItem[] = []): string {
   const valid = items.filter((i) => i.valid);
@@ -152,6 +174,7 @@ export function vbaApp(base: string, key: string, tables: DataTable[], items: Sa
     ...tables.map(tableVba),
     ...(valid.length ? ["", "' ================== REQUETES ET ACTIONS ENREGISTREES ==================", ""] : []),
     ...valid.map((i) => (i.kind === "query" ? queryVba(i) : actionVba(i))),
+    ...authVba(tables),
     "' Lit un champ dans le resultat JSON d'une action.", "Public Function Berkios_Champ(ByVal bk_json As String, ByVal bk_champ As String) As String", "    Berkios_Champ = BK_JsonField(bk_json, bk_champ)", "End Function", "",
   ].join("\n");
   return toAscii(vbaModule(base, key).replace(/\s+$/, "") + "\n" + all + "\n").replace(/\r?\n/g, "\r\n");
@@ -186,6 +209,12 @@ const sampleJson = (t: DataTable): string => {
 /** Toutes les routes disponibles pour ce classeur (relatives à l'adresse de base). */
 export function routesOf(tables: DataTable[], items: SavedItem[] = []): Route[] {
   const r: Route[] = [{ group: "Général", method: "GET", path: "", title: "Liste des tables et de leurs colonnes" }];
+  const au = authTarget(tables);
+  if (au) r.push(
+    { group: "Authentification", root: true, method: "POST", path: "/verify-secret", title: "Vérifier un mot de passe sur le serveur (renvoie valid: true/false, jamais l'empreinte)", body: `{ "table": "${au.table}", "field": "${au.secret}", "by": "${au.by}", "key": "<nom>", "secret": "<mot de passe>" }` },
+    { group: "Authentification", root: true, method: "POST", path: "/login", title: "Connecter un utilisateur : renvoie un jeton de session (bks1…) et ses données", body: `{ "table": "${au.table}", "field": "${au.secret}", "by": "${au.by}", "key": "<nom>", "secret": "<mot de passe>"${au.active ? `, "activeField": "${au.active}"` : ""}, "ttlMinutes": 480 }` },
+    { group: "Authentification", root: true, method: "GET", path: "/session", title: "Vérifier la session en cours (Authorization: Bearer <jeton bks1…>)" },
+    { group: "Authentification", root: true, method: "POST", path: "/logout", title: "Fermer la session en cours", body: "{}" });
   for (const t of tables) {
     const p = `/${t.table}`;
     r.push(

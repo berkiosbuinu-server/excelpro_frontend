@@ -36,6 +36,9 @@ Option Explicit
 ' Le fichier doit être enregistré en .xlsm. La clé donne accès aux données de CE classeur : ne la partagez pas.
 Private Const BK_URL As String = "{{URL}}"
 Private Const BK_KEY As String = "{{KEY}}"
+Private bk_token As String   ' jeton de session apres BK_Login (sinon la cle ci-dessus est utilisee)
+Private bk_user As String    ' reponse de la derniere connexion (champs de l'utilisateur, sans mot de passe)
+Public BK_DernierMessage As String ' dernier message d'erreur de BK_Verify / BK_Login
 
 ' ---- Utilisation -------------------------------------------------------------------------
 '  BK_LoadTable "vente", Sheets("Vente").Range("A1")          charge toute la table (en-têtes + lignes)
@@ -82,6 +85,52 @@ Public Function BK_Version(ByVal table As String, ByVal key As String) As Long
     BK_Version = CLng(Val(BK_JsonField(BK_Get(table, key), "_berkios_version")))
 End Function
 
+' ---- Connexion des utilisateurs (le mot de passe est verifie SUR LE SERVEUR) ----------------------
+' Renvoie True si le nom et le mot de passe sont corrects. Le serveur ne revele jamais l'empreinte du mot de passe.
+' Pour une cle limitee a la connexion, creez-la avec le droit "Connexion seulement" (API et cles).
+Public Function BK_Verify(ByVal table As String, ByVal champ As String, ByVal par As String, ByVal cle As String, ByVal secret As String) As Boolean
+    Dim t As String
+    On Error GoTo echec
+    BK_DernierMessage = ""
+    t = BK_Request("POST", "~/verify-secret", "{""table"":" & BK_JsonString(table) & ",""field"":" & BK_JsonString(champ) & ",""by"":" & BK_JsonString(par) & ",""key"":" & BK_JsonString(cle) & ",""secret"":" & BK_JsonString(secret) & "}")
+    BK_Verify = (InStr(t, """valid"":true") > 0)
+    If Not BK_Verify Then BK_DernierMessage = "Nom ou mot de passe incorrect."
+    Exit Function
+echec:
+    BK_DernierMessage = Err.Description
+    BK_Verify = False
+End Function
+
+' Ouvre une session : le serveur verifie le mot de passe puis renvoie un jeton qui expire. Facultatif : actif = colonne qui desactive un compte.
+Public Function BK_Login(ByVal table As String, ByVal champ As String, ByVal par As String, ByVal cle As String, ByVal secret As String, Optional ByVal actif As String = "") As Boolean
+    Dim t As String, b As String
+    On Error GoTo echec
+    BK_DernierMessage = "": bk_token = "": bk_user = ""
+    b = "{""table"":" & BK_JsonString(table) & ",""field"":" & BK_JsonString(champ) & ",""by"":" & BK_JsonString(par) & ",""key"":" & BK_JsonString(cle) & ",""secret"":" & BK_JsonString(secret)
+    If Len(actif) > 0 Then b = b & ",""activeField"":" & BK_JsonString(actif)
+    t = BK_Request("POST", "~/login", b & "}")
+    bk_token = BK_JsonField(t, "token")
+    bk_user = t
+    BK_Login = (Len(bk_token) > 0)
+    Exit Function
+echec:
+    BK_DernierMessage = Err.Description
+    bk_token = "": BK_Login = False
+End Function
+
+' Valeur d'une colonne de l'utilisateur connecte (ex. BK_UserField("role")).
+Public Function BK_UserField(ByVal champ As String) As String
+    BK_UserField = BK_JsonField(bk_user, champ)
+End Function
+Public Function BK_Connected() As Boolean
+    BK_Connected = (Len(bk_token) > 0)
+End Function
+Public Sub BK_Logout()
+    On Error Resume Next
+    If Len(bk_token) > 0 Then BK_Request "POST", "~/logout", "{}"
+    bk_token = "": bk_user = ""
+End Sub
+
 ' ---- Réseau --------------------------------------------------------------------------------
 Private Function BK_Request(ByVal method As String, ByVal path As String, ByVal body As String) As String
     Dim http As Object, txt As String
@@ -93,7 +142,12 @@ Private Function BK_Request(ByVal method As String, ByVal path As String, ByVal 
     Else
         http.Open method, BK_URL & path, False
     End If
-    http.setRequestHeader "Authorization", "Bearer " & BK_KEY
+    ' La verification et la connexion utilisent toujours la cle ; le reste utilise la session si l'utilisateur est connecte.
+    If Len(bk_token) > 0 And path <> "~/login" And path <> "~/verify-secret" Then
+        http.setRequestHeader "Authorization", "Bearer " & bk_token
+    Else
+        http.setRequestHeader "Authorization", "Bearer " & BK_KEY
+    End If
     http.setRequestHeader "Accept", "application/json"
     If Len(body) > 0 Then
         http.setRequestHeader "Content-Type", "application/json"
