@@ -6,11 +6,12 @@ import {
 import { PayModal } from "./PayModal";
 import { Runner } from "./Runner";
 import { Hosting } from "./Hosting";
+import { About } from "./About";
 import { Plans } from "./Plans";
 import { ChatWidget } from "./Chat";
 import { DevicesShowcase, Logo, PlatformBadge, PlatformIcon, PLATFORM_COLORS } from "./visuals";
 
-type Page = "home" | "login" | "submit" | "studio" | "orders" | "hosting" | "admin";
+type Page = "home" | "about" | "login" | "submit" | "studio" | "orders" | "hosting" | "admin";
 const LABELS: Record<string, string> = {
   windows: "Windows", android: "Android", linux: "Linux", ios: "iOS", macos: "macOS", web: "Web",
 };
@@ -81,6 +82,7 @@ export default function App() {
         <button className="burger" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(!menu)}><span /><span /><span /></button>
         <nav className={menu ? "open" : ""}>
           <button className={page === "home" ? "active" : ""} onClick={() => go("home")}>Accueil</button>
+          <button className={page === "about" ? "active" : ""} onClick={() => go("about")}>Qui sommes-nous ?</button>
           <button onClick={() => goSection("tarifs")}>Tarifs</button>
           <button onClick={() => goSection("hebergement")}>Hébergement</button>
           {email ? (
@@ -100,6 +102,7 @@ export default function App() {
       {payNotice && <div className="notice" role="status">{payNotice}<button onClick={() => setPayNotice("")} aria-label="Fermer">✕</button></div>}
       <main className={page === "home" ? "wide-main" : ""}>
         {page === "home" && <Home pricing={pricing} onStart={start} onHost={chooseHosting} goSection={goSection} />}
+        {page === "about" && <About onStart={start} onHosting={chooseHosting} />}
         {page === "login" && <Login onAuth={onAuth} />}
         {page === "submit" && (email ? <NewOrder pricing={pricing} onCreated={() => go("orders")} /> : <Login onAuth={onAuth} />)}
         {page === "studio" && (email ? <Claim /> : <Login onAuth={onAuth} />)}
@@ -108,7 +111,7 @@ export default function App() {
         {page === "admin" && role === "admin" && <Admin />}
       </main>
       <ChatWidget pricing={pricing} email={email} isAdmin={role === "admin"} onAdmin={() => go("admin")} />
-      <footer className="footer"><Logo size={22} /> <span>ExcelPro — Votre Excel devient une application.</span></footer>
+      <footer className="footer"><Logo size={22} /> <span>ExcelPro — Votre Excel devient une application.</span><button className="link" onClick={() => go("about")}>Qui sommes-nous ?</button></footer>
     </>
   );
 }
