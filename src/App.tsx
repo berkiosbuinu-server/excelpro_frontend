@@ -1,3 +1,4 @@
+import { Guide } from "./Guide";
 import { useCallback, useEffect, useState } from "react";
 import {
   api, setToken, hasToken, downloadDelivery, downloadSource, money, openProof,
@@ -14,7 +15,7 @@ import type { Billing, Plan } from "./plans";
 import { ChatWidget } from "./Chat";
 import { DevicesShowcase, Logo, PlatformBadge, PlatformIcon, PLATFORM_COLORS } from "./visuals";
 
-type Page = "home" | "about" | "login" | "submit" | "studio" | "orders" | "hosting" | "admin";
+type Page = "home" | "about" | "guide" | "login" | "submit" | "studio" | "orders" | "hosting" | "admin";
 const LABELS: Record<string, string> = {
   windows: "Windows", android: "Android", linux: "Linux", ios: "iOS", macos: "macOS", web: "Web",
 };
@@ -96,6 +97,7 @@ export default function App() {
         <nav className={menu ? "open" : ""}>
           <button className={page === "home" ? "active" : ""} onClick={() => go("home")}>Accueil</button>
           <button className={page === "about" ? "active" : ""} onClick={() => go("about")}>Qui sommes-nous ?</button>
+          <button className={page === "guide" ? "active" : ""} onClick={() => go("guide")}>Guide</button>
           <button onClick={() => goSection("tarifs")}>Tarifs</button>
           <button onClick={() => goSection("hebergement")}>Hébergement</button>
           {email ? (
@@ -115,6 +117,7 @@ export default function App() {
       {payNotice && <div className="notice" role="status">{payNotice}<button onClick={() => setPayNotice("")} aria-label="Fermer">✕</button></div>}
       <main className={page === "home" ? "wide-main" : ""}>
         {page === "home" && <Home pricing={pricing} onStart={start} onHost={choosePlan} goSection={goSection} />}
+        {page === "guide" && <Guide />}
         {page === "about" && <About onStart={start} onHosting={chooseHosting} />}
         {page === "login" && <Login onAuth={onAuth} />}
         {page === "submit" && (email ? <NewOrder pricing={pricing} onCreated={() => go("orders")} /> : <Login onAuth={onAuth} />)}
