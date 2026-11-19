@@ -15,7 +15,7 @@ export const PLANS: Plan[] = [
   { id: "equipe", name: "Équipe", audience: "Petite entreprise", monthly: 15, featured: true,
     limits: { workbooks: "3", rows: "200 000", calls: "500 000", keys: "5", queries: "30", backups: "14 jours", support: "E-mail" },
     users: "10 utilisateurs connectés", roles: "Rôles et droits par table", joins: false,
-    features: ["Connexion par mot de passe (haché sur le serveur)", "Rôles : lecture, saisie, administration", "Essai gratuit de 14 jours"] },
+    features: ["Connexion par mot de passe (haché sur le serveur)", "Rôles : lecture, saisie, administration", "Support par e-mail"] },
   { id: "entreprise", name: "Entreprise", audience: "Plusieurs classeurs, plusieurs métiers", monthly: 39,
     limits: { workbooks: "10", rows: "1 000 000", calls: "3 000 000", keys: "20", queries: "60", backups: "30 jours", support: "Prioritaire" },
     users: "100 utilisateurs connectés", roles: "Rôles, droits par ligne", joins: true,
@@ -27,6 +27,14 @@ export const PLANS: Plan[] = [
     features: ["Données séparées pour chaque client final", "Jetons partenaires pour créer vos clients", "Marque blanche en option : +20 $/mois"] },
 ];
 
+export type Billing = "monthly" | "quarterly" | "yearly";
+/** Durée de service obtenue : 3 mois payés = 4 mois (1 mois offert) ; annuel = 12 mois à −30 %. */
+export const BILLING_MONTHS: Record<Billing, number> = { monthly: 1, quarterly: 4, yearly: 12 };
+export const BILLING_LABEL: Record<Billing, string> = { monthly: "Mensuel", quarterly: "3 mois + 1 offert", yearly: "Annuel −30 %" };
+/** Montant payé (en dollars) pour une période. */
+export const priceFor = (monthly: number, b: Billing) => (b === "monthly" ? monthly : b === "quarterly" ? monthly * 3 : annualPrice(monthly));
+/** Équivalent par mois de service. */
+export const perMonth = (monthly: number, b: Billing) => Math.round((priceFor(monthly, b) / BILLING_MONTHS[b]) * 100) / 100;
 /** Prix annuel : 12 mois − 30 %, arrondi au dollar. */
 export const annualPrice = (monthly: number) => Math.round(monthly * 12 * (1 - ANNUAL_DISCOUNT));
 /** Équivalent mensuel de l'annuel (2 décimales). */

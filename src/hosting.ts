@@ -101,6 +101,18 @@ export const queriesApi = {
 };
 export type QuotaItem = { used: number; limit: number | null; percent: number | null; level: "ok" | "warn" | "full" };
 export type Quota = { tenant: string; plan: string | null; unlimited: boolean; month?: string; level?: "ok" | "warn" | "full"; usage?: Record<"workbooks" | "rows" | "calls" | "keys" | "queries", QuotaItem> };
+export type Access = { state: "none" | "trial" | "active" | "expired"; expiresAt: string | null; daysLeft: number | null; trial: boolean };
+export type SubRequest = { id: number; plan: string; billing: string; months: number; amountCents: number; reference: string | null; createdAt: string };
+/** Abonnement de l'entreprise connectée : offre, état (essai / actif / expiré), demande de paiement en attente. */
+export type Subscription = { tenant: string; plan: string | null; unlimited: boolean; requiresPlan: boolean; trialAvailable: boolean; access: Access; pending: SubRequest | null; level?: "ok" | "warn" | "full" };
+/** Un fichier simulé tient-il dans l'offre ? */
+export type ImportCheck = { ok: boolean; code?: string; message: string | null; plan: string | null; adding: number; limit?: number | null; current?: number; after?: number; excess?: number };
+export const subApi = {
+  me: () => call<Subscription>("GET", "/quotas/me"),
+  trial: (plan: string) => call<Subscription>("POST", "/quotas/me/trial", { json: { plan } }),
+  request: (b: { plan: string; billing: string; reference?: string; phone?: string }) => call<SubRequest>("POST", "/quotas/me/request", { json: b }),
+  check: (importId: string) => call<ImportCheck>("GET", `/imports/${importId}/quota-check`),
+};
 /** Utilisation de l'offre (lignes, appels du mois, clés…) de l'entreprise propriétaire du classeur. */
 export const quotaApi = { get: (id: string) => call<Quota>("GET", `/imports/${id}/quota`) };
 /** Droits par rôle : qui peut lire, ajouter, modifier, supprimer, lancer quelles requêtes et actions. */

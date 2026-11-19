@@ -431,3 +431,12 @@ main { padding-bottom: 130px; }
 .footer { flex-wrap: wrap; }.footer .link { margin-left: auto; }
 @media(max-width:850px) { .about-hero { grid-template-columns: 1fr; }.about-hero-art { min-height: 270px; }.about-challenge-grid { grid-template-columns: repeat(2,1fr); }.about-purpose { grid-template-columns: 1fr; gap: 8px; } }
 @media(max-width:560px) { .about-page { padding-top: 4px; }.about-hero { padding: 28px 20px; border-radius: 20px; }.about-hero h1 { font-size: 2.5rem; }.about-hero-art { min-height: 235px; transform: scale(.88); margin: -8px 0; }.about-challenge-grid,.about-service-grid { grid-template-columns: 1fr; }.about-info-card,.about-service-card { padding: 19px; }.about-author { align-items: flex-start; padding: 20px; gap: 14px; }.about-author-mark { width: 58px; height: 58px; border-radius: 17px; }.about-final { padding: 32px 20px; } }
+
+/* Abonnement : essai, promotion, alertes d'offre */
+.trial-banner { margin: 0 auto 14px; padding: 10px 14px; border-radius: 12px; background: var(--accent-soft); color: var(--fg); font-size: .92rem; max-width: 720px; }
+.billing { flex-wrap: wrap; justify-content: center; }
+.notice-inline { padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); font-size: .9rem; }
+.ok-msg { padding: 12px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.hosting-alert.plan-trial { background: var(--accent-soft); color: var(--accent); }
+.hosting-alert.plan-expired { background: var(--bad-bg, #fde8e8); color: var(--bad, #b42318); }
+.hosting-alert .link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; font-weight: 700; cursor: pointer; }

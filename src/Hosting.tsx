@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { hosting, resetHostingSession, SENSITIVE_LABEL, STATE_LABEL, withSensitiveMode, type Cap, type ImportRow, type ImportView, type SensitiveMode } from "./hosting";
+import { hosting, resetHostingSession, subApi, type ImportCheck, type Subscription, SENSITIVE_LABEL, STATE_LABEL, withSensitiveMode, type Cap, type ImportRow, type ImportView, type SensitiveMode } from "./hosting";
 import { api } from "./api";
 import { Dashboard } from "./Dashboard";
 
@@ -12,7 +12,7 @@ const stateTone: Record<string, string> = {
   prepared: "ready", dry_run: "review", running: "running", completed: "done", failed: "failed", interrupted: "review",
 };
 
-export function Hosting() {
+export function Hosting({ onPlans }: { onPlans: () => void }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [caps, setCaps] = useState<Cap | null>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
@@ -20,6 +20,8 @@ export function Hosting() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const [sub, setSub] = useState<Subscription | null>(null);
+  const [check, setCheck] = useState<ImportCheck | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
   const refresh = useCallback(async () => { try { setRows(await hosting.list()); } catch (e) { setError(errMsg(e)); } }, []);
@@ -32,6 +34,17 @@ export function Hosting() {
     }).catch(() => setEnabled(false));
     return () => { window.clearTimeout(timer.current); resetHostingSession(); };
   }, [refresh]);
+
+  useEffect(() => { subApi.me().then(setSub).catch(() => undefined); }, []);
+  // Après une simulation : le fichier tient-il dans l'offre ? (avant toute publication)
+  const dryAt = cur?.dryRun ? JSON.stringify(cur.dryRun.summary) : "";
+  useEffect(() => {
+    setCheck(null);
+    if (!cur || !cur.dryRun || ["running", "completed"].includes(cur.state)) return;
+    let live = true;
+    subApi.check(cur.id).then((c) => { if (live) setCheck(c); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [cur?.id, cur?.state, dryAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     window.clearTimeout(timer.current);
@@ -82,6 +95,9 @@ export function Hosting() {
         <div className="hosting-stat"><span className="stat-icon">⌁</span><div><small>État du service</small><strong className={importable ? "stat-online" : "stat-pending"}>{importable ? "Opérationnel" : "À vérifier"}</strong><em>connexion base de données</em></div></div>
       </div>
 
+      {sub && sub.access.state === "trial" && <div className="hosting-alert plan-trial"><b>i</b><span>Essai gratuit : <b>{sub.access.daysLeft ?? 0} jour(s) restant(s)</b> sur l'offre « {sub.plan} ». <button className="link" onClick={onPlans}>Choisir une offre</button></span></div>}
+      {sub && sub.access.state === "expired" && <div className="hosting-alert plan-expired" role="alert"><b>!</b><span>Votre offre a expiré : vos données restent consultables, mais l'importation et les modifications sont suspendues. <button className="link" onClick={onPlans}>Renouveler mon offre</button></span></div>}
+      {sub && sub.access.state === "active" && sub.access.daysLeft !== null && sub.access.daysLeft <= 7 && <div className="hosting-alert plan-trial"><b>i</b><span>Votre offre « {sub.plan} » expire dans {sub.access.daysLeft} jour(s). <button className="link" onClick={onPlans}>Renouveler</button></span></div>}
       {error && <div className="hosting-alert" role="alert"><b>!</b><span>{error}</span></div>}
       {caps && !caps.analyzer && <div className="hosting-alert"><b>!</b><span>La lecture des classeurs est momentanément indisponible côté serveur.</span></div>}
       {caps && !importable && <div className="hosting-alert"><b>!</b><span>La publication est momentanément indisponible. Vous pouvez analyser et simuler, mais pas encore importer.</span></div>}
@@ -123,11 +139,14 @@ export function Hosting() {
           {cur.plan.warnings.slice(0, 5).map((w, i) => <p key={i} className="warn">{w}</p>)}
           {cur.progress && cur.state === "running" && <div className="hosting-progress"><div><b>Publication en cours</b><span>{cur.progress.table} · {cur.progress.done}/{cur.progress.total}</span></div><div className="hosting-progress-track"><i style={{ width: `${cur.progress.total ? Math.min(100, cur.progress.done / cur.progress.total * 100) : 0}%` }} /></div></div>}
           {cur.dryRun && <Summary title="Résultat de la simulation" s={cur.dryRun.summary} />}
+          {check && check.message && (
+            <div className={`hosting-alert ${check.ok ? "plan-trial" : "plan-expired"}`} role={check.ok ? "status" : "alert"}><b>{check.ok ? "i" : "!"}</b><span>{check.message}{!check.ok && <> <button className="link" onClick={onPlans}>Changer d'offre</button></>}</span></div>
+          )}
           {cur.report && <Summary title="Rapport de publication" s={cur.report.summary} />}
           {["prepared", "dry_run", "failed", "interrupted"].includes(cur.state) && (
             <div className="hosting-actions">
               <button disabled={busy !== ""} onClick={() => act("dry", () => hosting.dryRun(cur.id))}>{busy === "dry" ? "Simulation…" : cur.dryRun ? "↻ Relancer la simulation" : "① Simuler l'importation"}</button>
-              {cur.dryRun && importable && <><label className="hosting-confirm"><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} /> Je confirme la publication de ces données</label><button className="primary" disabled={busy !== "" || !confirm} onClick={() => act("start", () => hosting.start(cur.id))}>Publier les données →</button></>}
+              {cur.dryRun && importable && <><label className="hosting-confirm"><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} /> Je confirme la publication de ces données</label><button className="primary" disabled={busy !== "" || !confirm || (check !== null && !check.ok)} onClick={() => act("start", () => hosting.start(cur.id))}>Publier les données →</button></>}
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   api, setToken, hasToken, downloadDelivery, downloadSource, money, openProof,
   type Order, type Pricing, type Conversation, type Delivery, type CheckReport, type ItemStatus, type Verdict, type ChecklistRow, type CheckItem,
@@ -8,6 +8,9 @@ import { Runner } from "./Runner";
 import { Hosting } from "./Hosting";
 import { About } from "./About";
 import { Plans } from "./Plans";
+import { Subscribe } from "./Subscribe";
+import { resetHostingSession, subApi, type Subscription } from "./hosting";
+import type { Billing, Plan } from "./plans";
 import { ChatWidget } from "./Chat";
 import { DevicesShowcase, Logo, PlatformBadge, PlatformIcon, PLATFORM_COLORS } from "./visuals";
 
@@ -46,8 +49,16 @@ export default function App() {
   const [next, setNext] = useState<Page>("studio");
   const [payNotice, setPayNotice] = useState("");
   const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+  // Abonnement d'hébergement : « Mon hébergement » n'existe que pour un compte qui a choisi une offre (essai, actif ou expiré).
+  const [sub, setSub] = useState<Subscription | null | undefined>(undefined); // undefined = en cours de chargement
+  const [choice, setChoice] = useState<{ plan: Plan; billing: Billing } | null>(null);
+  const [wanted, setWanted] = useState<{ plan: Plan; billing: Billing } | null>(null);
+  const loadSub = useCallback(() => { subApi.me().then(setSub).catch(() => setSub(null)); }, []);
+  const hasPlan = !!sub && sub.access.state !== "none";
 
   useEffect(() => { api.pricing().then(setPricing).catch(() => undefined); }, []);
+  useEffect(() => { if (email) { setSub(undefined); loadSub(); } else setSub(null); }, [email, loadSub]);
+  useEffect(() => { if (email && wanted) { setChoice(wanted); setWanted(null); } }, [email, wanted]);
   useEffect(() => {
     if (!hasToken()) return;
     api.me().then((m) => { setRole(m.role); setEmail(m.email); })
@@ -69,10 +80,12 @@ export default function App() {
   const onAuth = (token: string, r: string, mail: string) => {
     setToken(token); setRole(r); setEmail(mail); setPage(next); setNext("studio");
   };
-  const logout = () => { setToken(null); setRole(null); setEmail(null); setPage("home"); setMenu(false); };
+  const logout = () => { resetHostingSession(); setSub(null); setToken(null); setRole(null); setEmail(null); setPage("home"); setMenu(false); };
   const go = (p: Page) => { setPage(p); setMenu(false); window.scrollTo({ top: 0 }); };
   const start = () => { if (email) go("submit"); else { setNext("submit"); go("login"); } };
-  const chooseHosting = () => { if (email) go("hosting"); else { setNext("hosting"); go("login"); } };
+  // « Mon hébergement » : seulement avec une offre ; sinon on renvoie vers les tarifs pour en choisir une.
+  const chooseHosting = () => { if (email && hasPlan) go("hosting"); else goSection("hebergement"); };
+  const choosePlan = (plan: Plan, billing: Billing) => { if (email) setChoice({ plan, billing }); else { setWanted({ plan, billing }); setNext("home"); go("login"); } };
   const goSection = (id: string) => { setPendingScroll(id); setPage("home"); setMenu(false); };
 
   return (
@@ -90,7 +103,7 @@ export default function App() {
               <button className={page === "submit" ? "active" : ""} onClick={() => go("submit")}>Soumettre</button>
               <button className={page === "studio" ? "active" : ""} onClick={() => go("studio")}>Studio</button>
               <button className={page === "orders" ? "active" : ""} onClick={() => go("orders")}>Mes commandes</button>
-              <button className={page === "hosting" ? "active" : ""} onClick={() => go("hosting")}>Mon hébergement</button>
+              {hasPlan && <button className={page === "hosting" ? "active" : ""} onClick={() => go("hosting")}>Mon hébergement</button>}
               {role === "admin" && <button className={page === "admin" ? "active" : ""} onClick={() => go("admin")}>Administration</button>}
               <button onClick={logout}>Déconnexion</button>
             </>
@@ -101,22 +114,25 @@ export default function App() {
       </header>
       {payNotice && <div className="notice" role="status">{payNotice}<button onClick={() => setPayNotice("")} aria-label="Fermer">✕</button></div>}
       <main className={page === "home" ? "wide-main" : ""}>
-        {page === "home" && <Home pricing={pricing} onStart={start} onHost={chooseHosting} goSection={goSection} />}
+        {page === "home" && <Home pricing={pricing} onStart={start} onHost={choosePlan} goSection={goSection} />}
         {page === "about" && <About onStart={start} onHosting={chooseHosting} />}
         {page === "login" && <Login onAuth={onAuth} />}
         {page === "submit" && (email ? <NewOrder pricing={pricing} onCreated={() => go("orders")} /> : <Login onAuth={onAuth} />)}
         {page === "studio" && (email ? <Claim /> : <Login onAuth={onAuth} />)}
         {page === "orders" && (email ? <Orders pricing={pricing} /> : <Login onAuth={onAuth} />)}
-        {page === "hosting" && (email ? <Hosting /> : <Login onAuth={onAuth} />)}
+        {page === "hosting" && (!email ? <Login onAuth={onAuth} /> : sub === undefined ? <p className="muted">Chargement…</p> : hasPlan ? <Hosting onPlans={() => goSection("hebergement")} /> : (
+          <section className="hosting-shell"><div className="hosting-empty"><div className="hosting-symbol">▤</div><h2>Choisissez une offre d'hébergement</h2><p>L'hébergement est réservé aux comptes qui ont une offre. Choisissez-en une, payez par mobile money : elle est activée dès que nous avons vérifié le paiement.</p><button className="primary" onClick={() => goSection("hebergement")}>Voir les offres</button></div></section>
+        ))}
         {page === "admin" && role === "admin" && <Admin />}
       </main>
       <ChatWidget pricing={pricing} email={email} isAdmin={role === "admin"} onAdmin={() => go("admin")} />
+      {choice && <Subscribe plan={choice.plan} billing={choice.billing} pricing={pricing} onClose={() => setChoice(null)} onChanged={loadSub} onOpenHosting={() => { setChoice(null); setSub(undefined); loadSub(); go("hosting"); }} />}
       <footer className="footer"><Logo size={22} /> <span>ExcelPro — Votre Excel devient une application.</span><button className="link" onClick={() => go("about")}>Qui sommes-nous ?</button></footer>
     </>
   );
 }
 
-function Home({ pricing, onStart, onHost, goSection }: { pricing: Pricing | null; onStart: () => void; onHost: () => void; goSection: (id: string) => void }) {
+function Home({ pricing, onStart, onHost, goSection }: { pricing: Pricing | null; onStart: () => void; onHost: (p: Plan, b: Billing) => void; goSection: (id: string) => void }) {
   return (
     <>
       <section className="hero">
