@@ -1,6 +1,6 @@
 # Démarrer avec ExcelPro
 
-ExcelPro transforme votre classeur Excel en **base de données hébergée** : vos feuilles deviennent des tables, accessibles depuis Excel (macros VBA, Power Query, complément), un site web ou une application mobile, sans que vous écriviez de serveur.
+ExcelPro transforme votre classeur Excel en **base de données hébergée** : vos feuilles deviennent des tables, accessibles depuis Excel (macros VBA, Power Query, complément), un site web, une application desktop ou mobile, sans que vous écriviez de serveur.
 
 ## Ce que vous obtenez
 
