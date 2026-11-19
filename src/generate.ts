@@ -31,6 +31,8 @@ function tableVba(t: DataTable): string {
   const out: string[] = [];
   out.push(`' ===== Table "${t.table}" : ${cols.length} colonne(s), cle = ${pk}${t.generatedPrimaryKey ? " (generee par le serveur)" : ""} =====`);
   out.push(`Public Sub ${P}_Charger(ByVal bk_cible As Range)`, `    BK_LoadTable "${t.table}", bk_cible`, "End Sub", "");
+  out.push(`' Synchronisation : renvoie en JSON ce qui a change depuis le curseur (vide = tout) : { rows, deleted, cursor, hasMore }. Gardez le curseur recu pour l'appel suivant.`,
+    `Public Function ${P}_Modifications(Optional ByVal bk_curseur As String = "") As String`, `    ${P}_Modifications = BK_Request("GET", "/${t.table}/_changes?limit=1000&cursor=" & BK_UrlEncode(bk_curseur), "")`, "End Function", "");
   // Ajouter
   // La cle d'abord (obligatoire quand elle n'est pas generee) : en VBA, un argument obligatoire ne peut pas suivre un argument facultatif.
   const addFields = [...fields.filter((c) => c.name === pk && !t.generatedPrimaryKey), ...fields.filter((c) => c.name !== pk)];
@@ -255,6 +257,7 @@ export function routesOf(tables: DataTable[], items: SavedItem[] = []): Route[] 
     r.push(
       { group: t.table, method: "GET", path: `${p}?limit=50&offset=0&orderBy=${t.primaryKey}&direction=asc&f.<colonne>=<valeur>`, title: "Lister (pagination, tri, filtre exact)" },
       { group: t.table, method: "GET", path: `${p}?format=csv`, title: "Exporter toute la table en CSV (Excel / Power Query)" },
+      { group: t.table, method: "GET", path: `${p}/_changes?cursor=<curseur>&limit=1000`, title: "Modifications depuis la dernière synchronisation : lignes créées/modifiées, lignes supprimées et nouveau curseur (curseur vide = tout)" },
       { group: t.table, method: "GET", path: `${p}/{${t.primaryKey}}`, title: "Lire une ligne" },
       { group: t.table, method: "POST", path: p, title: "Ajouter une ligne", body: sampleJson(t) },
       { group: t.table, method: "PUT", path: `${p}/{${t.primaryKey}}`, title: "Modifier une ligne (version obligatoire)", body: `{ "expectedVersion": 1, "values": { … } }` },
