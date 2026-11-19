@@ -7,7 +7,7 @@ export type DataRow = Record<string, Scalar>;
 
 /** Requêtes et actions enregistrées sur le serveur (routes personnalisées d'un classeur). */
 export type SavedValue = string | number | boolean | null;
-export type SavedParam = { name: string; optional?: boolean; col?: string; op?: string };
+export type SavedParam = { name: string; optional?: boolean; col?: string; op?: string; type?: string; required?: boolean; fields?: string[] };
 export type SavedDef = {
   table: string; description?: string; op?: "update" | "insert";
   columns?: (string | { col: string; as?: string })[]; joins?: { table: string; type?: "left" | "inner"; on: { left: string; right: string }[] }[]; groupBy?: string[]; aggregates?: { fn: string; col?: string; as?: string }[];
@@ -15,7 +15,7 @@ export type SavedDef = {
   orderBy?: string; direction?: "asc" | "desc"; limit?: number;
   set?: { col: string; value?: SavedValue; param?: string }[];
 };
-export type SavedItem = { name: string; kind: "query" | "action"; def: SavedDef; params: SavedParam[]; valid: boolean; error?: string; createdAt: string; updatedAt: string };
+export type SavedItem = { name: string; kind: "query" | "action" | "procedure"; def: SavedDef; params: SavedParam[]; valid: boolean; error?: string; createdAt: string; updatedAt: string };
 
 /** Droits par rôle d'un classeur (appliqués aux utilisateurs connectés). */
 export type RowRule = { col: string; value: string }; // value : « $user » (identifiant de connexion), « $user.colonne » (fiche de l'utilisateur) ou une valeur fixe

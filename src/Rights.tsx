@@ -18,7 +18,7 @@ export function Rights({ importId, tables, items }: { importId: string; tables: 
   const target = authTarget(tables);
   const userTable = tables.find((t) => t.table === target?.table);
   const roleCols = userTable ? userTable.fields.filter((f) => !f.secret).map((f) => f.name) : [];
-  const queries = items.filter((i) => i.valid && i.kind === "query"), actions = items.filter((i) => i.valid && i.kind === "action");
+  const queries = items.filter((i) => i.valid && i.kind === "query"), actions = items.filter((i) => i.valid && (i.kind === "action" || i.kind === "procedure"));
 
   const load = useCallback(async () => {
     try { setError(""); const p = await policyApi.get(importId); setActive(p !== null); setPolicy(p ?? { roleColumn: roleCols.find((c) => /^(role|profil|droit|type)/i.test(c)) ?? "", roles: {} }); }

@@ -70,8 +70,8 @@ const pascal = (name: string) => name.split(/[^a-z0-9]+/i).filter(Boolean).map(c
 /** Racine du classeur (l'adresse de base de l'API de données sans son « /data » final). */
 export const rootOf = (base: string) => base.replace(/\/data\/?$/, "");
 /** Paramètres d'un élément : obligatoires d'abord (VBA interdit un argument obligatoire après un facultatif). */
-const orderedParams = (it: SavedItem) => [...it.params].sort((a, b) => Number(Boolean(a.optional)) - Number(Boolean(b.optional)));
-const note = (it: SavedItem) => (it.def.description ? it.def.description.replace(/[\r\n]+/g, " ") : it.kind === "query" ? "Requete enregistree" : "Action enregistree");
+const orderedParams = (it: SavedItem) => it.params.map((p) => (it.kind === "procedure" ? { ...p, optional: p.required === false } : p)).sort((a, b) => Number(Boolean(a.optional)) - Number(Boolean(b.optional)));
+const note = (it: SavedItem) => (it.def.description ? it.def.description.replace(/[\r\n]+/g, " ") : it.kind === "query" ? "Requete enregistree" : it.kind === "procedure" ? "Procedure enregistree" : "Action enregistree");
 
 function authVba(tables: DataTable[]): string[] {
   const a = authTarget(tables); if (!a) return [];
@@ -105,6 +105,37 @@ function queryVba(it: SavedItem): string {
   ].join("\n");
 }
 
+function procedureVba(it: SavedItem): string {
+  const N = pascal(it.name), ps = orderedParams(it), url = `"~/act/${encodeURIComponent(it.name)}"`;
+  const params = [...ps.map((p) => (p.type === "list" ? `ByVal ${vbaIdent(p.name)} As Range` : p.optional ? `Optional ${vbaIdent(p.name)} As Variant` : `${vbaIdent(p.name)} As Variant`)), "Optional bk_idem As String = \"\""];
+  const lists = ps.filter((p) => p.type === "list");
+  const line = (p: (typeof ps)[number]) => {
+    const v = vbaIdent(p.name);
+    if (p.type === "list") return `    If Len(bk_p) > 0 Then bk_p = bk_p & ","\n    bk_p = bk_p & BK_JsonString("${p.name}") & ":" & BK_List(${v}, "${(p.fields ?? []).join("|")}")`;
+    return p.optional ? `    If Not IsMissing(${v}) Then bk_p = BK_Add(bk_p, "${p.name}", ${v})` : `    bk_p = BK_Add(bk_p, "${p.name}", ${v})`;
+  };
+  return [
+    `' ===== Procedure "${it.name}" : ${note(it)}. Plusieurs etapes executees par le serveur en UNE transaction : tout reussit, ou rien n'est ecrit. =====`,
+    ...(lists.length ? [`' ${lists.map((l) => `${l.name} : plage de cellules, une ligne par element, colonnes dans l'ordre : ${(l.fields ?? []).join(", ")}`).join(" ; ")}.`] : []),
+    `' bk_idem (facultatif) : un texte unique par operation ; si l'appel est renvoye (coupure reseau), le serveur ne refait rien et rend le meme resultat.`,
+    `' Renvoie un JSON : lire un champ avec Berkios_Champ(resultat, "colonne"). En cas de refus (ex. stock insuffisant) l'erreur porte le message du serveur.`,
+    signature(`Public Function Procedure_${N}`, params) + " As String",
+    "    Dim bk_p As String, bk_b As String", ...ps.map(line),
+    '    bk_b = "{""params"":{" & bk_p & "}"', '    If Len(bk_idem) > 0 Then bk_b = bk_b & ",""idempotencyKey"":" & BK_JsonString(bk_idem)', '    bk_b = bk_b & "}"',
+    `    Procedure_${N} = BK_Request("POST", ${url}, bk_b)`, "End Function", "",
+  ].join("\n");
+}
+
+const LIST_HELPER = [
+  "' Convertit une plage (une ligne par element) en liste JSON ; bk_f = noms des champs separes par |, dans l'ordre des colonnes. Les lignes vides sont ignorees.",
+  "Private Function BK_List(ByVal bk_r As Range, ByVal bk_f As String) As String",
+  "    Dim bk_n() As String, bk_i As Long, bk_c As Long, bk_o As String, bk_row As String, bk_empty As Boolean",
+  '    bk_n = Split(bk_f, "|")', "    For bk_i = 1 To bk_r.Rows.Count", '        bk_row = "": bk_empty = True', "        For bk_c = 0 To UBound(bk_n)",
+  "            If bk_c + 1 <= bk_r.Columns.Count Then", "                If Len(CStr(bk_r.Cells(bk_i, bk_c + 1).Value)) > 0 Then bk_empty = False",
+  "                bk_row = BK_Add(bk_row, bk_n(bk_c), bk_r.Cells(bk_i, bk_c + 1).Value)", "            End If", "        Next bk_c", "        If Not bk_empty Then",
+  '            If Len(bk_o) > 0 Then bk_o = bk_o & ","', '            bk_o = bk_o & "{" & bk_row & "}"', "        End If", "    Next bk_i", '    BK_List = "[" & bk_o & "]"', "End Function", "",
+].join("\n");
+
 function actionVba(it: SavedItem): string {
   const N = pascal(it.name), ps = orderedParams(it), update = it.def.op !== "insert", url = `"~/act/${encodeURIComponent(it.name)}"`;
   const params = [...(update ? ["ByVal bk_cle As String"] : []), ...ps.map((p) => `${vbaIdent(p.name)} As Variant`), ...(update ? ["Optional bk_version As Long = 0"] : [])];
@@ -123,7 +154,9 @@ function actionVba(it: SavedItem): string {
 export function savedExample(lang: "pq" | "curl" | "js" | "py", base: string, it: SavedItem, key: string): string {
   const root = rootOf(base), path = `/${it.kind === "query" ? "q" : "act"}/${encodeURIComponent(it.name)}`, ps = it.params;
   const sample = (n: string) => `${n}=valeur`, qs = ps.map((p) => sample(p.name)).join("&");
-  const body = it.def.op === "insert" ? `{"params":{${ps.map((p) => `"${p.name}":"valeur"`).join(",")}}}` : `{"key":"CLE_DE_LA_LIGNE","expectedVersion":1,"params":{${ps.map((p) => `"${p.name}":"valeur"`).join(",")}}}`;
+  const proc = it.kind === "procedure";
+  const pv = (p: (typeof ps)[number]) => (p.type === "list" ? `[{${(p.fields ?? []).map((f) => `"${f}":"valeur"`).join(",")}}]` : `"valeur"`);
+  const body = proc ? `{"params":{${ps.map((p) => `"${p.name}":${pv(p)}`).join(",")}},"idempotencyKey":"operation-001"}` : it.def.op === "insert" ? `{"params":{${ps.map((p) => `"${p.name}":"valeur"`).join(",")}}}` : `{"key":"CLE_DE_LA_LIGNE","expectedVersion":1,"params":{${ps.map((p) => `"${p.name}":"valeur"`).join(",")}}}`;
   if (lang === "pq") {
     if (it.kind !== "query") return "// Power Query ne fait que lire : utilisez le VBA, curl, JavaScript ou Python pour une action.";
     const query = ["format = \"csv\"", ...ps.map((p) => `${p.name} = "valeur"`)].join(", ");
@@ -139,7 +172,7 @@ in
     : `curl -X POST -H "Authorization: Bearer ${key}" -H "Content-Type: application/json" \\\n  -d '${body}' "${root}${path}"`;
   if (lang === "js") return `const res = await fetch("${root}${path}${it.kind === "query" && qs ? "?" + qs : ""}", {
   method: "${it.kind === "query" ? "GET" : "POST"}",
-  headers: { Authorization: "Bearer ${key}"${it.kind === "action" ? ', "Content-Type": "application/json"' : ""} },${it.kind === "action" ? `\n  body: JSON.stringify(${body}),` : ""}
+  headers: { Authorization: "Bearer ${key}"${it.kind !== "query" ? ', "Content-Type": "application/json"' : ""} },${it.kind !== "query" ? `\n  body: JSON.stringify(${body}),` : ""}
 });
 const json = await res.json();
 if (!res.ok) throw new Error(json.error?.message ?? res.status);
@@ -147,7 +180,7 @@ console.log(json.data);`;
   return `import json, urllib.request
 
 req = urllib.request.Request("${root}${path}${it.kind === "query" && qs ? "?" + qs : ""}", method="${it.kind === "query" ? "GET" : "POST"}",
-    headers={"Authorization": "Bearer ${key}", "Content-Type": "application/json"}${it.kind === "action" ? `,\n    data=json.dumps(${body}).encode()` : ""})
+    headers={"Authorization": "Bearer ${key}", "Content-Type": "application/json"}${it.kind !== "query" ? `,\n    data=json.dumps(${body}).encode()` : ""})
 with urllib.request.urlopen(req) as r:
     print(json.load(r)["data"])`;
 }
@@ -173,7 +206,8 @@ export function vbaApp(base: string, key: string, tables: DataTable[], items: Sa
     "Public Sub Berkios_ChargerTout()", ...tables.map((t) => `    BK_LoadInSheet "${t.table}"`), "End Sub", "",
     ...tables.map(tableVba),
     ...(valid.length ? ["", "' ================== REQUETES ET ACTIONS ENREGISTREES ==================", ""] : []),
-    ...valid.map((i) => (i.kind === "query" ? queryVba(i) : actionVba(i))),
+    ...valid.map((i) => (i.kind === "query" ? queryVba(i) : i.kind === "procedure" ? procedureVba(i) : actionVba(i))),
+    ...(valid.some((i) => i.kind === "procedure" && i.params.some((p) => p.type === "list")) ? [LIST_HELPER] : []),
     ...authVba(tables),
     "' Lit un champ dans le resultat JSON d'une action.", "Public Function Berkios_Champ(ByVal bk_json As String, ByVal bk_champ As String) As String", "    Berkios_Champ = BK_JsonField(bk_json, bk_champ)", "End Function", "",
   ].join("\n");
@@ -230,6 +264,8 @@ export function routesOf(tables: DataTable[], items: SavedItem[] = []): Route[] 
   for (const it of items.filter((i) => i.valid)) {
     const ps = it.params, group = "Requêtes enregistrées";
     if (it.kind === "query") r.push({ group, root: true, method: "GET", path: `/q/${it.name}${ps.length ? "?" + ps.map((p) => `${p.name}=<valeur>`).join("&") : ""}`, title: `${note(it)} — ajoutez ?format=csv pour Excel` });
+    else if (it.kind === "procedure") r.push({ group, root: true, method: "POST", path: `/act/${it.name}`, title: `${note(it)} (procedure : plusieurs etapes en une transaction, tout ou rien)`,
+      body: `{ "params": { ${ps.map((p) => `"${p.name}": ${p.type === "list" ? `[ { ${(p.fields ?? []).map((f) => `"${f}": …`).join(", ")} } ]` : "…"}`).join(", ")} }, "idempotencyKey": "<texte unique, facultatif>" }` });
     else r.push({ group, root: true, method: "POST", path: `/act/${it.name}`, title: `${note(it)} (${it.def.op === "insert" ? "ajoute une ligne" : "modifie une ligne"})`,
       body: `{ ${it.def.op === "insert" ? "" : '"key": "…", "expectedVersion": 1, '}"params": { ${ps.map((p) => `"${p.name}": …`).join(", ")} } }` });
   }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { queriesApi } from "./hosting";
+import { ProcedureBuilder } from "./Procedures";
 import { columnsOf, isNumericType, type DataRow, type DataTable, type SavedDef, type SavedItem } from "./dataops";
 
 type Mode = "query" | "aggregate" | "action";
@@ -38,7 +39,7 @@ function fromItem(it: SavedItem) {
 
 /** Création des routes personnalisées : formulaire guidé, sans code. Les définitions sont enregistrées sur le serveur. */
 export function Queries({ importId, tables, items, onChanged, onUse }: { importId: string; tables: DataTable[]; items: SavedItem[]; onChanged: () => Promise<void>; onUse: (name: string) => void }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(false); const [proc, setProc] = useState<{ item?: SavedItem } | null>(null);
   const [name, setName] = useState(""); const [mode, setMode] = useState<Mode>("query");
   const [table, setTable] = useState(""); const [description, setDescription] = useState("");
   const [columns, setColumns] = useState<string[]>([]); const [aliases, setAliases] = useState<Record<string, string>>({}); const [joins, setJoins] = useState<JoinRow[]>([]);
@@ -128,15 +129,17 @@ export function Queries({ importId, tables, items, onChanged, onUse }: { importI
 
   return (
     <div>
-      <p className="muted">Créez vos propres routes sans écrire de code : une <b>requête</b> lit des données (filtres, totaux, regroupements), une <b>action</b> écrit (ex. « valider une facture »). Chacune devient une route de l'API et une fonction VBA prête à copier.</p>
+      <p className="muted">Créez vos propres routes sans écrire de code : une <b>requête</b> lit des données (filtres, totaux, regroupements), une <b>action</b> écrit une ligne, une <b>procédure</b> enchaîne plusieurs étapes en une seule transaction (ex. « créer une facture avec ses lignes et baisser le stock »). Chacune devient une route de l'API et une fonction VBA prête à copier.</p>
       {error && <p className="error" role="alert">{error}</p>}{info && <p className="ok">{info}</p>}
 
-      {!editing && (
+      {proc && <ProcedureBuilder importId={importId} tables={tables} item={proc.item} onCancel={() => setProc(null)} onDone={async (n) => { await onChanged(); setProc(null); setInfo(`Procédure « ${n} » enregistrée : route, code VBA et exemples générés.`); }} />}
+      {!editing && !proc && (
         <>
           <div style={box}>
             <button className="primary" onClick={() => startNew("query")} disabled={!tables.length}>+ Requête de lecture</button>
             <button className="primary" onClick={() => startNew("aggregate")} disabled={!tables.length}>+ Calcul / regroupement</button>
             <button className="primary" onClick={() => startNew("action")} disabled={!tables.length}>+ Action (écriture)</button>
+            <button className="primary" onClick={() => setProc({})} disabled={!tables.length}>+ Procédure (plusieurs étapes)</button>
           </div>
           {items.length === 0 ? <p className="muted">Aucune requête enregistrée pour ce classeur.</p> : (
             <table style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -144,9 +147,9 @@ export function Queries({ importId, tables, items, onChanged, onUse }: { importI
               <tbody>{items.map((it) => (
                 <tr key={it.name} style={{ borderTop: "1px solid var(--line)" }}>
                   <td><b>{it.name}</b>{!it.valid && <span className="error"> ⚠ {it.error}</span>}{it.def.description && <div className="muted">{it.def.description}</div>}</td>
-                  <td>{it.kind === "action" ? (it.def.op === "insert" ? "Action : ajouter" : "Action : modifier") : it.def.aggregates?.length ? "Calcul" : "Lecture"}</td>
-                  <td>{[it.def.table, ...(it.def.joins ?? []).map((j) => j.table)].join(" + ")}</td><td style={mono}>{it.params.map((p) => p.name + (p.optional ? "?" : "")).join(", ") || "—"}</td>
-                  <td style={{ whiteSpace: "nowrap" }}><button onClick={() => onUse(it.name)}>Code</button> <button onClick={() => edit(it)}>Modifier</button> <button disabled={busy} onClick={() => remove(it)}>Supprimer</button></td>
+                  <td>{it.kind === "procedure" ? "Procédure" : it.kind === "action" ? (it.def.op === "insert" ? "Action : ajouter" : "Action : modifier") : it.def.aggregates?.length ? "Calcul" : "Lecture"}</td>
+                  <td>{it.kind === "procedure" ? `${(it.def as unknown as { steps: unknown[] }).steps.length} étape(s)` : [it.def.table, ...(it.def.joins ?? []).map((j) => j.table)].join(" + ")}</td><td style={mono}>{it.params.map((p) => p.name + (p.optional ? "?" : "")).join(", ") || "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}><button onClick={() => onUse(it.name)}>Code</button> <button onClick={() => (it.kind === "procedure" ? setProc({ item: it }) : edit(it))}>Modifier</button> <button disabled={busy} onClick={() => remove(it)}>Supprimer</button></td>
                 </tr>
               ))}</tbody>
             </table>

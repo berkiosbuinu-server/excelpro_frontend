@@ -95,7 +95,7 @@ export const keysApi = {
 /** Requêtes (lecture, calculs) et actions (écriture) enregistrées : routes personnalisées du classeur, créées sans code. */
 export const queriesApi = {
   list: (id: string) => call<SavedItem[]>("GET", `/imports/${id}/queries`),
-  save: (id: string, name: string, kind: "query" | "action", def: SavedDef) => call<SavedItem>("POST", `/imports/${id}/queries`, { json: { name, kind, def } }),
+  save: (id: string, name: string, kind: "query" | "action" | "procedure", def: SavedDef | object) => call<SavedItem>("POST", `/imports/${id}/queries`, { json: { name, kind, def } }),
   remove: (id: string, name: string) => call<{ name: string; deleted: boolean }>("DELETE", `/imports/${id}/queries/${enc(name)}`),
   preview: (id: string, def: SavedDef, params: Record<string, string>) => call<DataPage>("POST", `/imports/${id}/queries/preview`, { json: { def, params } }),
 };
