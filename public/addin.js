@@ -150,6 +150,128 @@ function diffSheet(t, snapshot, current, _a) {
             changes.push({ kind: "delete", key: key, expectedVersion: o.version }); });
     return { changes: changes, errors: errors };
 }
+var indexOf = function (a, f) { for (var i = 0; i < a.length; i++)
+    if (f(a[i]))
+        return i; return -1; };
+var blank = function (r) { return r.every(function (c) { return c === "" || c === null || c === undefined; }); };
+var cellsOf = function (t, r) { return columnsOf(t).map(function (c) { return toCell(r[c.name], c.type); }); };
+var versionOf = function (r) { var _a; return String((_a = r[VERSION_COL]) !== null && _a !== void 0 ? _a : "1"); };
+function mergeFeed(t, snapshot, current, feed, _a) {
+    var _b = _a === void 0 ? {} : _a, _c = _b.withDeletes, withDeletes = _c === void 0 ? false : _c;
+    var cols = columnsOf(t), keyIdx = indexOf(cols, function (c) { return c.name === t.primaryKey; });
+    var out = current.filter(function (r) { return !blank(r); }).map(function (r) { return cols.map(function (_, i) { return (r[i] === undefined ? "" : r[i]); }); });
+    var snap = new Map();
+    snapshot.values.forEach(function (r, i) { var _a; return snap.set(String(r[keyIdx]), { row: r.slice(), version: (_a = snapshot.versions[i]) !== null && _a !== void 0 ? _a : "1" }); });
+    var stats = { added: 0, updated: 0, removed: 0, merged: 0 }, conflicts = [];
+    var at = function (key) { return indexOf(out, function (r) { return String(r[keyIdx]) === key; }); };
+    var val = function (row, i) { return fromCell(row[i], cols[i].type); };
+    var differs = function (a, b) { return cols.map(function (_, i) { return i; }).filter(function (i) { return !same(val(a, i), val(b, i), cols[i].type); }); };
+    var latest = new Map();
+    feed.rows.forEach(function (r) { var k = String(r[t.primaryKey]), o = latest.get(k); if (!o || Number(versionOf(r)) >= Number(versionOf(o)))
+        latest.set(k, r); });
+    latest.forEach(function (sr, key) {
+        var srv = cellsOf(t, sr), v = versionOf(sr), old = snap.get(key), li = at(key);
+        if (old && Number(v) <= Number(old.version))
+            return;
+        if (!old) {
+            if (li < 0) {
+                out.push(srv);
+                snap.set(key, { row: srv, version: v });
+                stats.added++;
+                return;
+            }
+            var d = differs(out[li], srv);
+            if (!d.length) {
+                snap.set(key, { row: srv, version: v });
+                return;
+            }
+            conflicts.push({ key: key, kind: "duplicate", fields: d.map(function (i) { return ({ col: cols[i].name, mine: val(out[li], i), server: val(srv, i) }); }), serverRow: sr });
+            return;
+        }
+        if (li < 0) {
+            if (withDeletes) {
+                conflicts.push({ key: key, kind: "local-deleted", fields: [], serverRow: sr });
+                return;
+            }
+            out.push(srv);
+            snap.set(key, { row: srv, version: v });
+            stats.added++;
+            return;
+        }
+        var mine = differs(out[li], old.row), theirs = differs(srv, old.row);
+        if (!mine.length) {
+            out[li] = srv;
+            snap.set(key, { row: srv, version: v });
+            stats.updated++;
+            return;
+        }
+        var clash = mine.filter(function (i) { return theirs.indexOf(i) >= 0 && !same(val(out[li], i), val(srv, i), cols[i].type); });
+        var row = out[li].slice();
+        theirs.forEach(function (i) { if (mine.indexOf(i) < 0)
+            row[i] = srv[i]; });
+        out[li] = row;
+        if (!clash.length) {
+            snap.set(key, { row: srv, version: v });
+            stats.merged++;
+            return;
+        }
+        conflicts.push({ key: key, kind: "both", fields: clash.map(function (i) { return ({ col: cols[i].name, mine: val(row, i), server: val(srv, i) }); }), serverRow: sr });
+    });
+    feed.deleted.forEach(function (d) {
+        var key = String(d.key), old = snap.get(key);
+        if (!old || latest.has(key))
+            return;
+        var li = at(key);
+        if (li < 0) {
+            snap.delete(key);
+            return;
+        }
+        if (!differs(out[li], old.row).length) {
+            out.splice(li, 1);
+            snap.delete(key);
+            stats.removed++;
+            return;
+        }
+        conflicts.push({ key: key, kind: "server-deleted", fields: [], serverRow: null });
+    });
+    var keys = [];
+    snap.forEach(function (_, k) { return keys.push(k); });
+    return { rows: out, conflicts: conflicts, stats: stats, snapshot: { header: snapshot.header, types: snapshot.types, values: keys.map(function (k) { return snap.get(k).row; }), versions: keys.map(function (k) { return snap.get(k).version; }) } };
+}
+function resolveConflict(t, state, c, choice) {
+    var cols = columnsOf(t), keyIdx = indexOf(cols, function (x) { return x.name === t.primaryKey; });
+    var rows = state.rows.map(function (r) { return r.slice(); }), values = state.snapshot.values.map(function (r) { return r.slice(); }), versions = state.snapshot.versions.slice();
+    var at = indexOf(rows, function (r) { return String(r[keyIdx]) === c.key; }), si = indexOf(values, function (r) { return String(r[keyIdx]) === c.key; });
+    var srv = c.serverRow ? cellsOf(t, c.serverRow) : null, ver = c.serverRow ? versionOf(c.serverRow) : "";
+    var setSnap = function (row, v) { if (si >= 0) {
+        values[si] = row;
+        versions[si] = v;
+    }
+    else {
+        values.push(row);
+        versions.push(v);
+    } };
+    if (c.kind === "server-deleted") {
+        if (choice === "server") {
+            if (at >= 0)
+                rows.splice(at, 1);
+        }
+        if (si >= 0) {
+            values.splice(si, 1);
+            versions.splice(si, 1);
+        }
+    }
+    else if (choice === "server" && srv) {
+        if (at >= 0)
+            rows[at] = srv;
+        else
+            rows.push(srv);
+        setSnap(srv, ver);
+    }
+    else if (srv)
+        setSnap(srv, ver);
+    return { rows: rows, snapshot: { header: state.snapshot.header, types: state.snapshot.types, values: values, versions: versions } };
+}
 var LS = {
     get: function (k) { try {
         return window.localStorage.getItem(k);
@@ -258,14 +380,42 @@ function sheetsExist(ctx, names) {
 }
 function sheetName(t) { return ("BK_" + t).slice(0, 31); }
 function snapName(t) { return ("_BKS_" + t).slice(0, 31); }
-function pull(importId, t) {
+function fetchFeed(importId, table, cursor) {
     return __awaiter(this, void 0, void 0, function () {
-        var rows, sh, n;
+        var rows, deleted, cur, full, i, r;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4, listAll(importId, t.table)];
+                case 0:
+                    rows = [], deleted = [], cur = cursor, full = false;
+                    i = 0;
+                    _a.label = 1;
                 case 1:
-                    rows = _a.sent(), sh = buildSheet(t, rows), n = sh.header.length;
+                    if (!(i < 200)) return [3, 4];
+                    return [4, call("GET", "/imports/" + importId + "/data/" + enc(table) + "/_changes?limit=1000&cursor=" + enc(cur))];
+                case 2:
+                    r = _a.sent();
+                    rows = rows.concat(r.rows);
+                    deleted = deleted.concat(r.deleted || []);
+                    cur = r.cursor;
+                    full = full || !!r.fullReload;
+                    if (!r.hasMore)
+                        return [3, 4];
+                    _a.label = 3;
+                case 3:
+                    i++;
+                    return [3, 1];
+                case 4: return [2, { rows: rows, deleted: deleted, cursor: cur, fullReload: full }];
+            }
+        });
+    });
+}
+function writeSheets(importId, t, rows, snap, cursor) {
+    return __awaiter(this, void 0, void 0, function () {
+        var n;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    n = snap.header.length;
                     return [4, Excel.run(function (ctx) {
                             return __awaiter(this, void 0, void 0, function () {
                                 var wb, ex, ws, ss, fmt;
@@ -281,7 +431,7 @@ function pull(importId, t) {
                                             ws.getRange().clear();
                                             ss.getRange().clear();
                                             fmt = function (sheet, rowsN, extra) {
-                                                var line = sh.types.map(function (ty) { return isNumericType(ty) ? "General" : "@"; });
+                                                var line = snap.types.map(function (ty) { return isNumericType(ty) ? "General" : "@"; });
                                                 for (var i = 0; i < extra; i++)
                                                     line.push("@");
                                                 var f = [];
@@ -289,10 +439,10 @@ function pull(importId, t) {
                                                     f.push(line.slice());
                                                 sheet.getRange(addr(0, 0, rowsN, n + extra)).numberFormat = f;
                                             };
-                                            fmt(ws, sh.values.length + 1, 0);
-                                            ws.getRange(addr(0, 0, 1, n)).values = [sh.header];
-                                            if (sh.values.length)
-                                                ws.getRange(addr(1, 0, sh.values.length, n)).values = sh.values;
+                                            fmt(ws, rows.length + 1, 0);
+                                            ws.getRange(addr(0, 0, 1, n)).values = [snap.header];
+                                            if (rows.length)
+                                                ws.getRange(addr(1, 0, rows.length, n)).values = rows;
                                             ws.getRange(addr(0, 0, 1, n)).format.font.bold = true;
                                             ws.getRange(addr(0, 0, 1, n)).format.fill.color = "#E3F4EA";
                                             if (t.generatedPrimaryKey)
@@ -305,11 +455,11 @@ function pull(importId, t) {
                                                 ws.getUsedRange().format.autofitColumns();
                                             }
                                             catch (e) { }
-                                            fmt(ss, sh.values.length + 2, 1);
-                                            ss.getRange(addr(0, 0, 1, 4)).values = [["importId", importId, "table", t.table]];
-                                            ss.getRange(addr(1, 0, 1, n + 1)).values = [sh.header.concat([VERSION_COL])];
-                                            if (sh.values.length)
-                                                ss.getRange(addr(2, 0, sh.values.length, n + 1)).values = sh.values.map(function (r, i) { return r.concat([sh.versions[i]]); });
+                                            fmt(ss, snap.values.length + 2, 1);
+                                            ss.getRange(addr(0, 0, 1, 6)).values = [["importId", importId, "table", t.table, "cursor", cursor]];
+                                            ss.getRange(addr(1, 0, 1, n + 1)).values = [snap.header.concat([VERSION_COL])];
+                                            if (snap.values.length)
+                                                ss.getRange(addr(2, 0, snap.values.length, n + 1)).values = snap.values.map(function (r, i) { return r.concat([snap.versions[i]]); });
                                             ss.visibility = "Hidden";
                                             ws.activate();
                                             return [4, ctx.sync()];
@@ -320,6 +470,23 @@ function pull(importId, t) {
                                 });
                             });
                         })];
+                case 1:
+                    _a.sent();
+                    return [2];
+            }
+        });
+    });
+}
+function byCreated(a, b) { var x = String(a._berkios_created_at || ""), y = String(b._berkios_created_at || ""); return x < y ? -1 : x > y ? 1 : 0; }
+function pull(importId, t) {
+    return __awaiter(this, void 0, void 0, function () {
+        var f, rows, sh;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0: return [4, fetchFeed(importId, t.table, "")];
+                case 1:
+                    f = _a.sent(), rows = f.rows.sort(byCreated), sh = buildSheet(t, rows);
+                    return [4, writeSheets(importId, t, sh.values, sh, f.cursor)];
                 case 2:
                     _a.sent();
                     return [2, rows.length];
@@ -327,9 +494,9 @@ function pull(importId, t) {
         });
     });
 }
-function readChanges(importId, t, withDeletes) {
+function readState(importId, t) {
     return __awaiter(this, void 0, void 0, function () {
-        var cols, n, res, snapVals, cur, expected, header, snapRows, snapshot;
+        var cols, n, res, snapVals, cur, expected, header, snapRows;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -367,18 +534,83 @@ function readChanges(importId, t, withDeletes) {
                     if (header.join("|") !== expected.join("|"))
                         throw new Error("Les en-têtes de la feuille ont été modifiés. Ne renommez, ne déplacez et ne supprimez aucune colonne (rechargez pour repartir d'une feuille propre).");
                     snapRows = snapVals.slice(2);
-                    snapshot = {
-                        header: expected, types: cols.map(function (c) { return c.type; }),
-                        values: snapRows.map(function (r) { return r.slice(0, n); }),
-                        versions: snapRows.map(function (r) { return String(r[n] == null ? "1" : r[n]); }),
-                    };
-                    return [2, diffSheet(t, snapshot, cur.slice(1).map(function (r) { return r.slice(0, n); }), { withDeletes: withDeletes })];
+                    return [2, {
+                            rows: cur.slice(1).map(function (r) { return r.slice(0, n); }),
+                            cursor: String((snapVals[0] && snapVals[0][5]) || ""),
+                            snapshot: {
+                                header: expected, types: cols.map(function (c) { return c.type; }),
+                                values: snapRows.map(function (r) { return r.slice(0, n); }),
+                                versions: snapRows.map(function (r) { return String(r[n] == null ? "1" : r[n]); }),
+                            },
+                        }];
             }
         });
     });
 }
+function readChanges(importId, t, withDeletes) {
+    return __awaiter(this, void 0, void 0, function () {
+        var st;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0: return [4, readState(importId, t)];
+                case 1:
+                    st = _a.sent();
+                    return [2, diffSheet(t, st.snapshot, st.rows, { withDeletes: withDeletes })];
+            }
+        });
+    });
+}
+function syncIn(importId, t, withDeletes) {
+    return __awaiter(this, void 0, void 0, function () {
+        var st, f, m;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0: return [4, readState(importId, t)];
+                case 1:
+                    st = _a.sent();
+                    if (!st.cursor)
+                        throw new Error("Cette feuille a été chargée par une ancienne version : cliquez d'abord sur « Charger depuis le serveur ».");
+                    return [4, fetchFeed(importId, t.table, st.cursor)];
+                case 2:
+                    f = _a.sent();
+                    if (f.fullReload)
+                        throw new Error("Trop de temps depuis la dernière synchronisation : envoyez vos modifications si besoin, puis rechargez la feuille complètement (« Charger depuis le serveur »).");
+                    m = mergeFeed(t, st.snapshot, st.rows, { rows: f.rows, deleted: f.deleted }, { withDeletes: withDeletes });
+                    return [4, writeSheets(importId, t, m.rows, m.snapshot, m.conflicts.length ? st.cursor : f.cursor)];
+                case 3:
+                    _a.sent();
+                    S.nextCursor = f.cursor;
+                    return [2, m];
+            }
+        });
+    });
+}
+function resolveOne(importId, t, c, choice, last) {
+    return __awaiter(this, void 0, void 0, function () {
+        var st, r;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0: return [4, readState(importId, t)];
+                case 1:
+                    st = _a.sent(), r = resolveConflict(t, { rows: st.rows, snapshot: st.snapshot }, c, choice);
+                    return [4, writeSheets(importId, t, r.rows, r.snapshot, last ? S.nextCursor || st.cursor : st.cursor)];
+                case 2:
+                    _a.sent();
+                    return [2];
+            }
+        });
+    });
+}
+function describeConflict(c) {
+    if (c.kind === "server-deleted")
+        return "supprimée sur le serveur, mais modifiée dans votre feuille";
+    if (c.kind === "local-deleted")
+        return "supprimée dans votre feuille, mais modifiée sur le serveur";
+    var shown = function (v) { return v === null ? "(vide)" : String(v); };
+    return (c.kind === "duplicate" ? "ajoutée des deux côtés avec des valeurs différentes : " : "modifiée des deux côtés : ") + c.fields.map(function (f) { return f.col + " — vous : " + shown(f.mine) + ", serveur : " + shown(f.server); }).join(" ; ");
+}
 function describeChange(c) { return c.kind === "insert" ? "➕ ligne " + c.line : c.kind === "update" ? "✏️ " + c.key + " (" + Object.keys(c.values).join(", ") + ")" : "🗑️ " + c.key; }
-var S = { screen: "boot", imports: [], importId: "", tables: [], tableName: "", withDeletes: false, preview: null, busy: "", error: "", info: "" };
+var S = { screen: "boot", imports: [], importId: "", tables: [], tableName: "", withDeletes: false, preview: null, conflicts: [], nextCursor: "", busy: "", error: "", info: "" };
 function $(id) { return document.getElementById(id); }
 function curTable() { for (var i = 0; i < S.tables.length; i++)
     if (S.tables[i].table === S.tableName)
@@ -413,12 +645,18 @@ function render() {
             h += '<button id="pull" class="primary"' + (t && !S.busy ? "" : " disabled") + ">" + (S.busy === "pull" ? "Chargement…" : "⬇ Charger depuis le serveur") + "</button><hr>";
             h += '<p class="muted">Modifiez, ajoutez ou supprimez des lignes dans la feuille <b>' + esc(t ? sheetName(t.table) : "") + "</b>, puis envoyez.</p>";
             h += '<label class="chk"><input id="del" type="checkbox"' + (S.withDeletes ? " checked" : "") + '> Supprimer aussi du serveur les lignes retirées de la feuille</label>';
+            h += '<button id="sync" class="primary"' + (t && !S.busy ? "" : " disabled") + ">" + (S.busy === "sync" ? "Synchronisation…" : "🔄 Synchroniser (recevoir puis préparer l\'envoi)") + "</button> ";
             h += '<button id="diff"' + (t && !S.busy ? "" : " disabled") + ">" + (S.busy === "diff" ? "Analyse…" : "Voir mes modifications") + "</button>";
+            if (S.conflicts.length) {
+                h += '<div class="card"><b>' + S.conflicts.length + " ligne(s) à arbitrer</b><p class=\"muted\">Les deux côtés ont changé. Rien n'est écrasé tant que vous n'avez pas choisi.</p>";
+                h += S.conflicts.map(function (c, i) { return "<p><b>" + esc(c.key) + "</b> : " + esc(describeConflict(c)) + '<br><button data-res="' + i + ':server">Garder le serveur</button> <button data-res="' + i + ':mine">Garder la mienne</button></p>'; }).join("");
+                h += '<button data-res="all:server">Tout : garder le serveur</button> <button data-res="all:mine">Tout : garder les miennes</button></div>';
+            }
             if (S.preview) {
                 h += '<div class="card">' + S.preview.errors.map(function (e) { return '<p class="err">' + esc(e) + "</p>"; }).join("");
                 if (S.preview.changes.length) {
                     h += "<b>" + S.preview.changes.length + " modification(s) :</b><ul>" + S.preview.changes.slice(0, 200).map(function (c) { return "<li>" + esc(describeChange(c)) + "</li>"; }).join("") + "</ul>";
-                    h += '<button id="push" class="primary"' + (S.busy || S.preview.errors.length ? " disabled" : "") + ">" + (S.busy === "push" ? "Envoi…" : "⬆ Envoyer au serveur") + "</button>";
+                    h += '<button id="push" class="primary"' + (S.busy || S.preview.errors.length || S.conflicts.length ? " disabled" : "") + ">" + (S.busy === "push" ? "Envoi…" : "⬆ Envoyer au serveur") + "</button>";
                     if (S.preview.errors.length)
                         h += '<p class="warn">Corrigez les erreurs ci-dessus avant d\'envoyer.</p>';
                 }
@@ -465,6 +703,7 @@ function loadTables() {
                     S.tables = [];
                     S.tableName = "";
                     S.preview = null;
+                    S.conflicts = [];
                     if (!S.importId)
                         return [2];
                     return [4, call("GET", "/imports/" + S.importId + "/data")];
@@ -515,7 +754,7 @@ function bind() {
         imp.onchange = function () { S.importId = imp.value; run("tables", loadTables); };
     var tab = $("tab");
     if (tab)
-        tab.onchange = function () { S.tableName = tab.value; S.preview = null; render(); };
+        tab.onchange = function () { S.tableName = tab.value; S.preview = null; S.conflicts = []; render(); };
     var del = $("del");
     if (del)
         del.onchange = function () { S.withDeletes = !!del.checked; S.preview = null; render(); };
@@ -532,6 +771,80 @@ function bind() {
             }
         }); });
     }); });
+    b("sync", function () {
+        var t = curTable();
+        if (!t)
+            return;
+        run("sync", function () {
+            return __awaiter(this, void 0, void 0, function () {
+                var m, d, st, parts;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0: return [4, syncIn(S.importId, t, S.withDeletes)];
+                        case 1:
+                            m = _a.sent();
+                            S.conflicts = m.conflicts;
+                            return [4, readChanges(S.importId, t, S.withDeletes)];
+                        case 2:
+                            d = _a.sent();
+                            S.preview = d;
+                            st = m.stats, parts = [];
+                            if (st.added)
+                                parts.push(st.added + " ajoutée(s)");
+                            if (st.updated)
+                                parts.push(st.updated + " mise(s) à jour");
+                            if (st.merged)
+                                parts.push(st.merged + " fusionnée(s)");
+                            if (st.removed)
+                                parts.push(st.removed + " supprimée(s)");
+                            S.info = (parts.length ? "Reçu du serveur : " + parts.join(", ") + "." : "Rien de nouveau sur le serveur.") + (m.conflicts.length ? " " + m.conflicts.length + " conflit(s) à arbitrer." : "");
+                            return [2];
+                    }
+                });
+            });
+        });
+    });
+    var resBtns = document.querySelectorAll("[data-res]");
+    for (var ri = 0; ri < resBtns.length; ri++)
+        (function (el) {
+            el.onclick = function () {
+                var spec = String(el.getAttribute("data-res")).split(":"), choice = spec[1], t = curTable();
+                if (!t)
+                    return;
+                var todo = spec[0] === "all" ? S.conflicts.slice() : [S.conflicts[Number(spec[0])]];
+                run("resolve", function () {
+                    return __awaiter(this, void 0, void 0, function () {
+                        var left, k, _a;
+                        return __generator(this, function (_b) {
+                            switch (_b.label) {
+                                case 0:
+                                    left = S.conflicts.slice();
+                                    k = 0;
+                                    _b.label = 1;
+                                case 1:
+                                    if (!(k < todo.length)) return [3, 4];
+                                    left = left.filter(function (x) { return x !== todo[k]; });
+                                    return [4, resolveOne(S.importId, t, todo[k], choice, left.length === 0)];
+                                case 2:
+                                    _b.sent();
+                                    _b.label = 3;
+                                case 3:
+                                    k++;
+                                    return [3, 1];
+                                case 4:
+                                    S.conflicts = left;
+                                    _a = S;
+                                    return [4, readChanges(S.importId, t, S.withDeletes)];
+                                case 5:
+                                    _a.preview = _b.sent();
+                                    S.info = todo.length + " conflit(s) réglé(s)." + (left.length ? "" : " Vous pouvez envoyer vos modifications.");
+                                    return [2];
+                            }
+                        });
+                    });
+                });
+            };
+        })(resBtns[ri]);
     b("diff", function () { var t = curTable(); if (!t)
         return; run("diff", function () {
         return __awaiter(this, void 0, void 0, function () { var d; return __generator(this, function (_a) {
@@ -552,7 +865,7 @@ function bind() {
             return;
         run("push", function () {
             return __awaiter(this, void 0, void 0, function () {
-                var fails, ok, base, i, c, e_1;
+                var fails, ok, base, i, c, e_1, m2;
                 return __generator(this, function (_a) {
                     switch (_a.label) {
                         case 0:
@@ -590,14 +903,22 @@ function bind() {
                         case 10:
                             i++;
                             return [3, 1];
-                        case 11: return [4, pull(S.importId, t)];
+                        case 11:
+                            S.preview = null;
+                            if (!!fails.length) return [3, 13];
+                            return [4, pull(S.importId, t)];
                         case 12:
                             _a.sent();
-                            S.preview = null;
                             S.info = ok + " modification(s) envoyée(s). La feuille a été rechargée.";
-                            if (fails.length)
-                                S.error = fails.length + " échec(s) :\n" + fails.slice(0, 10).join("\n");
-                            return [2];
+                            return [3, 15];
+                        case 13: return [4, syncIn(S.importId, t, false)];
+                        case 14:
+                            m2 = _a.sent();
+                            S.conflicts = m2.conflicts;
+                            S.info = ok + " modification(s) envoyée(s).";
+                            S.error = fails.length + " échec(s) :\n" + fails.slice(0, 10).join("\n");
+                            _a.label = 15;
+                        case 15: return [2];
                     }
                 });
             });

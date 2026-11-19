@@ -83,8 +83,20 @@ async function sheetsExist(ctx: any, names: string[]): Promise<{ [lower: string]
 function sheetName(t: string) { return ("BK_" + t).slice(0, 31); }
 function snapName(t: string) { return ("_BKS_" + t).slice(0, 31); }
 
-async function pull(importId: string, t: DataTable): Promise<number> {
-  var rows = await listAll(importId, t.table), sh = buildSheet(t, rows), n = sh.header.length;
+/** Lit toutes les modifications du serveur depuis un curseur (vide = tout), page après page. */
+async function fetchFeed(importId: string, table: string, cursor: string): Promise<{ rows: any[]; deleted: any[]; cursor: string; fullReload: boolean }> {
+  var rows: any[] = [], deleted: any[] = [], cur = cursor, full = false;
+  for (var i = 0; i < 200; i++) {
+    var r: any = await call("GET", "/imports/" + importId + "/data/" + enc(table) + "/_changes?limit=1000&cursor=" + enc(cur));
+    rows = rows.concat(r.rows); deleted = deleted.concat(r.deleted || []); cur = r.cursor; full = full || !!r.fullReload;
+    if (!r.hasMore) break;
+  }
+  return { rows: rows, deleted: deleted, cursor: cur, fullReload: full };
+}
+
+/** Écrit la feuille visible et sa copie cachée (état du serveur à la dernière synchronisation + curseur). */
+async function writeSheets(importId: string, t: DataTable, rows: Cell[][], snap: Sheet, cursor: string) {
+  var n = snap.header.length;
   await Excel.run(async function (ctx: any) {
     var wb = ctx.workbook;
     var ex = await sheetsExist(ctx, [sheetName(t.table), snapName(t.table)]);
@@ -92,31 +104,39 @@ async function pull(importId: string, t: DataTable): Promise<number> {
     var ss = ex[snapName(t.table).toLowerCase()] ? wb.worksheets.getItem(snapName(t.table)) : wb.worksheets.add(snapName(t.table));
     ws.getRange().clear(); ss.getRange().clear();
     var fmt = function (sheet: any, rowsN: number, extra: number) {
-      var line: string[] = sh.types.map(function (ty) { return isNumericType(ty) ? "General" : "@"; });
+      var line: string[] = snap.types.map(function (ty) { return isNumericType(ty) ? "General" : "@"; });
       for (var i = 0; i < extra; i++) line.push("@");
       var f: string[][] = []; for (var r = 0; r < rowsN; r++) f.push(line.slice());
       sheet.getRange(addr(0, 0, rowsN, n + extra)).numberFormat = f;
     };
-    fmt(ws, sh.values.length + 1, 0);
-    ws.getRange(addr(0, 0, 1, n)).values = [sh.header];
-    if (sh.values.length) ws.getRange(addr(1, 0, sh.values.length, n)).values = sh.values;
+    fmt(ws, rows.length + 1, 0);
+    ws.getRange(addr(0, 0, 1, n)).values = [snap.header];
+    if (rows.length) ws.getRange(addr(1, 0, rows.length, n)).values = rows;
     ws.getRange(addr(0, 0, 1, n)).format.font.bold = true;
     ws.getRange(addr(0, 0, 1, n)).format.fill.color = "#E3F4EA";
     if (t.generatedPrimaryKey) ws.getRange(addr(0, 0, 1, 1)).format.fill.color = "#DDDDDD";
     try { ws.freezePanes.freezeRows(1); } catch (e) { /* ExcelApi ancien */ }
     try { ws.getUsedRange().format.autofitColumns(); } catch (e) { /* ExcelApi 1.2 */ }
-    fmt(ss, sh.values.length + 2, 1);
-    ss.getRange(addr(0, 0, 1, 4)).values = [["importId", importId, "table", t.table]];
-    ss.getRange(addr(1, 0, 1, n + 1)).values = [sh.header.concat([VERSION_COL])];
-    if (sh.values.length) ss.getRange(addr(2, 0, sh.values.length, n + 1)).values = sh.values.map(function (r, i) { return (r as any[]).concat([sh.versions[i]]); });
+    fmt(ss, snap.values.length + 2, 1);
+    ss.getRange(addr(0, 0, 1, 6)).values = [["importId", importId, "table", t.table, "cursor", cursor]];
+    ss.getRange(addr(1, 0, 1, n + 1)).values = [snap.header.concat([VERSION_COL])];
+    if (snap.values.length) ss.getRange(addr(2, 0, snap.values.length, n + 1)).values = snap.values.map(function (r, i) { return (r as any[]).concat([snap.versions[i]]); });
     ss.visibility = "Hidden";
     ws.activate();
     await ctx.sync();
   });
+}
+
+function byCreated(a: any, b: any): number { var x = String(a._berkios_created_at || ""), y = String(b._berkios_created_at || ""); return x < y ? -1 : x > y ? 1 : 0; }
+/** Chargement complet (remplace la feuille par l'état du serveur). */
+async function pull(importId: string, t: DataTable): Promise<number> {
+  var f = await fetchFeed(importId, t.table, ""), rows = f.rows.sort(byCreated), sh = buildSheet(t, rows);
+  await writeSheets(importId, t, sh.values, sh, f.cursor);
   return rows.length;
 }
 
-async function readChanges(importId: string, t: DataTable, withDeletes: boolean) {
+/** État actuel : feuille visible (lignes), copie de la dernière synchronisation et curseur. */
+async function readState(importId: string, t: DataTable): Promise<{ rows: any[][]; snapshot: Sheet; cursor: string }> {
   var cols = columnsOf(t), n = cols.length;
   var res: { cur: any[][]; snapVals: any[][] } = await Excel.run(async function (ctx: any) {
     var ex = await sheetsExist(ctx, [sheetName(t.table), snapName(t.table)]);
@@ -132,18 +152,47 @@ async function readChanges(importId: string, t: DataTable, withDeletes: boolean)
   var header = (cur[0] || []).slice(0, n).map(String);
   if (header.join("|") !== expected.join("|")) throw new Error("Les en-têtes de la feuille ont été modifiés. Ne renommez, ne déplacez et ne supprimez aucune colonne (rechargez pour repartir d'une feuille propre).");
   var snapRows = snapVals.slice(2);
-  var snapshot: Sheet = {
-    header: expected, types: cols.map(function (c) { return c.type; }),
-    values: snapRows.map(function (r) { return r.slice(0, n); }),
-    versions: snapRows.map(function (r) { return String(r[n] == null ? "1" : r[n]); }),
+  return {
+    rows: cur.slice(1).map(function (r) { return r.slice(0, n); }),
+    cursor: String((snapVals[0] && snapVals[0][5]) || ""),
+    snapshot: {
+      header: expected, types: cols.map(function (c) { return c.type; }),
+      values: snapRows.map(function (r) { return r.slice(0, n); }),
+      versions: snapRows.map(function (r) { return String(r[n] == null ? "1" : r[n]); }),
+    },
   };
-  return diffSheet(t, snapshot, cur.slice(1).map(function (r) { return r.slice(0, n); }), { withDeletes: withDeletes });
+}
+async function readChanges(importId: string, t: DataTable, withDeletes: boolean) {
+  var st = await readState(importId, t);
+  return diffSheet(t, st.snapshot, st.rows, { withDeletes: withDeletes });
+}
+/** Reçoit les modifications du serveur et les fusionne avec la feuille (sans perdre les modifications locales). */
+async function syncIn(importId: string, t: DataTable, withDeletes: boolean): Promise<MergeResult> {
+  var st = await readState(importId, t);
+  if (!st.cursor) throw new Error("Cette feuille a été chargée par une ancienne version : cliquez d'abord sur « Charger depuis le serveur ».");
+  var f = await fetchFeed(importId, t.table, st.cursor);
+  if (f.fullReload) throw new Error("Trop de temps depuis la dernière synchronisation : envoyez vos modifications si besoin, puis rechargez la feuille complètement (« Charger depuis le serveur »).");
+  var m = mergeFeed(t, st.snapshot, st.rows, { rows: f.rows, deleted: f.deleted }, { withDeletes: withDeletes });
+  // tant qu'un conflit n'est pas réglé, le curseur n'avance pas : le désaccord serait redétecté à la prochaine synchronisation
+  await writeSheets(importId, t, m.rows, m.snapshot, m.conflicts.length ? st.cursor : f.cursor);
+  S.nextCursor = f.cursor;
+  return m;
+}
+async function resolveOne(importId: string, t: DataTable, c: Conflict, choice: "mine" | "server", last: boolean) {
+  var st = await readState(importId, t), r = resolveConflict(t, { rows: st.rows, snapshot: st.snapshot }, c, choice);
+  await writeSheets(importId, t, r.rows, r.snapshot, last ? S.nextCursor || st.cursor : st.cursor);
+}
+function describeConflict(c: Conflict): string {
+  if (c.kind === "server-deleted") return "supprimée sur le serveur, mais modifiée dans votre feuille";
+  if (c.kind === "local-deleted") return "supprimée dans votre feuille, mais modifiée sur le serveur";
+  var shown = function (v: any) { return v === null ? "(vide)" : String(v); };
+  return (c.kind === "duplicate" ? "ajoutée des deux côtés avec des valeurs différentes : " : "modifiée des deux côtés : ") + c.fields.map(function (f) { return f.col + " — vous : " + shown(f.mine) + ", serveur : " + shown(f.server); }).join(" ; ");
 }
 function describeChange(c: Change): string { return c.kind === "insert" ? "➕ ligne " + c.line : c.kind === "update" ? "✏️ " + c.key + " (" + Object.keys(c.values).join(", ") + ")" : "🗑️ " + c.key; }
 
 // ───────── Interface ─────────
-var S: { screen: string; imports: any[]; importId: string; tables: DataTable[]; tableName: string; withDeletes: boolean; preview: { changes: Change[]; errors: string[] } | null; busy: string; error: string; info: string } =
-  { screen: "boot", imports: [], importId: "", tables: [], tableName: "", withDeletes: false, preview: null, busy: "", error: "", info: "" };
+var S: { screen: string; imports: any[]; importId: string; tables: DataTable[]; tableName: string; withDeletes: boolean; preview: { changes: Change[]; errors: string[] } | null; conflicts: Conflict[]; nextCursor: string; busy: string; error: string; info: string } =
+  { screen: "boot", imports: [], importId: "", tables: [], tableName: "", withDeletes: false, preview: null, conflicts: [], nextCursor: "", busy: "", error: "", info: "" };
 function $(id: string): any { return document.getElementById(id); }
 function curTable(): DataTable | null { for (var i = 0; i < S.tables.length; i++) if (S.tables[i].table === S.tableName) return S.tables[i]; return null; }
 function msgs(): string { return (S.error ? '<p class="err" role="alert">' + esc(S.error) + "</p>" : "") + (S.info ? '<p class="ok">' + esc(S.info) + "</p>" : ""); }
@@ -168,12 +217,18 @@ function render() {
       h += '<button id="pull" class="primary"' + (t && !S.busy ? "" : " disabled") + ">" + (S.busy === "pull" ? "Chargement…" : "⬇ Charger depuis le serveur") + "</button><hr>";
       h += '<p class="muted">Modifiez, ajoutez ou supprimez des lignes dans la feuille <b>' + esc(t ? sheetName(t.table) : "") + "</b>, puis envoyez.</p>";
       h += '<label class="chk"><input id="del" type="checkbox"' + (S.withDeletes ? " checked" : "") + '> Supprimer aussi du serveur les lignes retirées de la feuille</label>';
+      h += '<button id="sync" class="primary"' + (t && !S.busy ? "" : " disabled") + ">" + (S.busy === "sync" ? "Synchronisation…" : "🔄 Synchroniser (recevoir puis préparer l\'envoi)") + "</button> ";
       h += '<button id="diff"' + (t && !S.busy ? "" : " disabled") + ">" + (S.busy === "diff" ? "Analyse…" : "Voir mes modifications") + "</button>";
+      if (S.conflicts.length) {
+        h += '<div class="card"><b>' + S.conflicts.length + " ligne(s) à arbitrer</b><p class=\"muted\">Les deux côtés ont changé. Rien n'est écrasé tant que vous n'avez pas choisi.</p>";
+        h += S.conflicts.map(function (c, i) { return "<p><b>" + esc(c.key) + "</b> : " + esc(describeConflict(c)) + '<br><button data-res="' + i + ':server">Garder le serveur</button> <button data-res="' + i + ':mine">Garder la mienne</button></p>'; }).join("");
+        h += '<button data-res="all:server">Tout : garder le serveur</button> <button data-res="all:mine">Tout : garder les miennes</button></div>';
+      }
       if (S.preview) {
         h += '<div class="card">' + S.preview.errors.map(function (e) { return '<p class="err">' + esc(e) + "</p>"; }).join("");
         if (S.preview.changes.length) {
           h += "<b>" + S.preview.changes.length + " modification(s) :</b><ul>" + S.preview.changes.slice(0, 200).map(function (c) { return "<li>" + esc(describeChange(c)) + "</li>"; }).join("") + "</ul>";
-          h += '<button id="push" class="primary"' + (S.busy || S.preview.errors.length ? " disabled" : "") + ">" + (S.busy === "push" ? "Envoi…" : "⬆ Envoyer au serveur") + "</button>";
+          h += '<button id="push" class="primary"' + (S.busy || S.preview.errors.length || S.conflicts.length ? " disabled" : "") + ">" + (S.busy === "push" ? "Envoi…" : "⬆ Envoyer au serveur") + "</button>";
           if (S.preview.errors.length) h += '<p class="warn">Corrigez les erreurs ci-dessus avant d\'envoyer.</p>';
         }
         h += "</div>";
@@ -195,7 +250,7 @@ async function loadImports() {
   await loadTables();
 }
 async function loadTables() {
-  S.tables = []; S.tableName = ""; S.preview = null;
+  S.tables = []; S.tableName = ""; S.preview = null; S.conflicts = [];
   if (!S.importId) return;
   var s: any = await call("GET", "/imports/" + S.importId + "/data");
   S.tables = s.tables; S.tableName = S.tables.length ? S.tables[0].table : "";
@@ -212,9 +267,35 @@ function bind() {
   });
   b("logout", function () { LS.del("excelpro_token"); conn = null; S.imports = []; S.importId = ""; S.tables = []; S.preview = null; S.screen = "login"; render(); });
   var imp = $("imp"); if (imp) imp.onchange = function () { S.importId = imp.value; run("tables", loadTables); };
-  var tab = $("tab"); if (tab) tab.onchange = function () { S.tableName = tab.value; S.preview = null; render(); };
+  var tab = $("tab"); if (tab) tab.onchange = function () { S.tableName = tab.value; S.preview = null; S.conflicts = []; render(); };
   var del = $("del"); if (del) del.onchange = function () { S.withDeletes = !!del.checked; S.preview = null; render(); };
   b("pull", function () { var t = curTable(); if (!t) return; run("pull", async function () { var n = await pull(S.importId, t!); S.preview = null; S.info = n + " ligne(s) chargée(s) dans la feuille " + sheetName(t!.table) + "."; }); });
+  b("sync", function () {
+    var t = curTable(); if (!t) return;
+    run("sync", async function () {
+      var m = await syncIn(S.importId, t!, S.withDeletes); S.conflicts = m.conflicts;
+      var d = await readChanges(S.importId, t!, S.withDeletes); S.preview = d;
+      var st = m.stats, parts: string[] = [];
+      if (st.added) parts.push(st.added + " ajoutée(s)"); if (st.updated) parts.push(st.updated + " mise(s) à jour"); if (st.merged) parts.push(st.merged + " fusionnée(s)"); if (st.removed) parts.push(st.removed + " supprimée(s)");
+      S.info = (parts.length ? "Reçu du serveur : " + parts.join(", ") + "." : "Rien de nouveau sur le serveur.") + (m.conflicts.length ? " " + m.conflicts.length + " conflit(s) à arbitrer." : "");
+    });
+  });
+  var resBtns = document.querySelectorAll("[data-res]");
+  for (var ri = 0; ri < resBtns.length; ri++) (function (el: any) {
+    el.onclick = function () {
+      var spec = String(el.getAttribute("data-res")).split(":"), choice = spec[1] as "mine" | "server", t = curTable(); if (!t) return;
+      var todo = spec[0] === "all" ? S.conflicts.slice() : [S.conflicts[Number(spec[0])]];
+      run("resolve", async function () {
+        var left = S.conflicts.slice();
+        for (var k = 0; k < todo.length; k++) {
+          left = left.filter(function (x) { return x !== todo[k]; });
+          await resolveOne(S.importId, t!, todo[k], choice, left.length === 0);
+        }
+        S.conflicts = left; S.preview = await readChanges(S.importId, t!, S.withDeletes);
+        S.info = todo.length + " conflit(s) réglé(s)." + (left.length ? "" : " Vous pouvez envoyer vos modifications.");
+      });
+    };
+  })(resBtns[ri]);
   b("diff", function () { var t = curTable(); if (!t) return; run("diff", async function () { var d = await readChanges(S.importId, t!, S.withDeletes); S.preview = d; if (!d.changes.length && !d.errors.length) S.info = "Aucune modification à envoyer."; }); });
   b("push", function () {
     var t = curTable(), p = S.preview; if (!t || !p) return;
@@ -229,9 +310,13 @@ function bind() {
           ok++;
         } catch (e) { fails.push(describeChange(c) + " : " + errMsg(e)); }
       }
-      await pull(S.importId, t!); S.preview = null;
-      S.info = ok + " modification(s) envoyée(s). La feuille a été rechargée.";
-      if (fails.length) S.error = fails.length + " échec(s) :\n" + fails.slice(0, 10).join("\n");
+      S.preview = null;
+      if (!fails.length) { await pull(S.importId, t!); S.info = ok + " modification(s) envoyée(s). La feuille a été rechargée."; }
+      else {
+        // des lignes ont été refusées : on garde la feuille telle quelle (rien n'est perdu) et on récupère seulement le nouvel état du serveur
+        var m2 = await syncIn(S.importId, t!, false); S.conflicts = m2.conflicts;
+        S.info = ok + " modification(s) envoyée(s)."; S.error = fails.length + " échec(s) :\n" + fails.slice(0, 10).join("\n");
+      }
     });
   });
 }

@@ -120,3 +120,87 @@ export function diffSheet(t: DataTable, snapshot: Sheet, current: unknown[][], {
   if (withDeletes) snap.forEach((o, key) => { if (!seen.has(key)) changes.push({ kind: "delete", key, expectedVersion: o.version }); });
   return { changes, errors };
 }
+
+// ───────────── Synchronisation à double sens : fusion des changements du serveur avec la feuille ─────────────
+export type Feed = { rows: DataRow[]; deleted: { key: string; version?: number | null }[] };
+export type Cell = string | number | boolean;
+/** Désaccord à résoudre par l'utilisateur. both = modifiée des deux côtés ; server-deleted = supprimée sur le serveur mais modifiée ici ;
+ *  local-deleted = supprimée ici mais modifiée sur le serveur ; duplicate = même clé ajoutée des deux côtés avec des valeurs différentes. */
+export type Conflict = { key: string; kind: "both" | "server-deleted" | "local-deleted" | "duplicate"; fields: { col: string; mine: Scalar; server: Scalar }[]; serverRow: DataRow | null };
+export type MergeResult = { rows: Cell[][]; snapshot: Sheet; conflicts: Conflict[]; stats: { added: number; updated: number; removed: number; merged: number } };
+
+/** Équivalent de findIndex (absent des anciens Excel). */
+const indexOf = <T>(a: T[], f: (x: T) => boolean): number => { for (var i = 0; i < a.length; i++) if (f(a[i])) return i; return -1; };
+const blank = (r: unknown[]) => r.every((c) => c === "" || c === null || c === undefined);
+const cellsOf = (t: DataTable, r: DataRow): Cell[] => columnsOf(t).map((c) => toCell(r[c.name], c.type));
+const versionOf = (r: DataRow) => String(r[VERSION_COL] ?? "1");
+
+/**
+ * Fusion à trois : « snapshot » = état du serveur à la dernière synchronisation, « current » = la feuille (avec les modifications locales),
+ * « feed » = ce qui a changé sur le serveur depuis. Ce qui n'est modifié que d'un côté est appliqué automatiquement ; les modifications de
+ * colonnes différentes d'une même ligne sont fusionnées ; seul un vrai désaccord (même colonne, valeurs différentes) devient un conflit.
+ * Une ligne en conflit garde sa valeur locale et son ancienne version : un envoi accidentel serait refusé par le serveur, jamais écrasé.
+ */
+export function mergeFeed(t: DataTable, snapshot: Sheet, current: unknown[][], feed: Feed, { withDeletes = false } = {}): MergeResult {
+  const cols = columnsOf(t), keyIdx = indexOf(cols, (c) => c.name === t.primaryKey);
+  const out: Cell[][] = current.filter((r) => !blank(r)).map((r) => cols.map((_, i) => (r[i] === undefined ? "" : (r[i] as Cell))));
+  const snap = new Map<string, { row: Cell[]; version: string }>();
+  snapshot.values.forEach((r, i) => snap.set(String(r[keyIdx]), { row: r.slice(), version: snapshot.versions[i] ?? "1" }));
+  const stats = { added: 0, updated: 0, removed: 0, merged: 0 }, conflicts: Conflict[] = [];
+  const at = (key: string) => indexOf(out, (r) => String(r[keyIdx]) === key);
+  const val = (row: Cell[], i: number): Scalar => fromCell(row[i], cols[i].type);
+  const differs = (a: Cell[], b: Cell[]) => cols.map((_, i) => i).filter((i) => !same(val(a, i), val(b, i), cols[i].type));
+
+  // dernière version de chaque ligne reçue
+  const latest = new Map<string, DataRow>();
+  feed.rows.forEach((r) => { const k = String(r[t.primaryKey]), o = latest.get(k); if (!o || Number(versionOf(r)) >= Number(versionOf(o))) latest.set(k, r); });
+
+  latest.forEach((sr, key) => {
+    const srv = cellsOf(t, sr), v = versionOf(sr), old = snap.get(key), li = at(key);
+    if (old && Number(v) <= Number(old.version)) return; // déjà à jour
+    if (!old) {
+      if (li < 0) { out.push(srv); snap.set(key, { row: srv, version: v }); stats.added++; return; }
+      const d = differs(out[li], srv);
+      if (!d.length) { snap.set(key, { row: srv, version: v }); return; }
+      conflicts.push({ key, kind: "duplicate", fields: d.map((i) => ({ col: cols[i].name, mine: val(out[li], i), server: val(srv, i) })), serverRow: sr }); return;
+    }
+    if (li < 0) {
+      if (withDeletes) { conflicts.push({ key, kind: "local-deleted", fields: [], serverRow: sr }); return; }
+      out.push(srv); snap.set(key, { row: srv, version: v }); stats.added++; return;
+    }
+    const mine = differs(out[li], old.row), theirs = differs(srv, old.row);
+    if (!mine.length) { out[li] = srv; snap.set(key, { row: srv, version: v }); stats.updated++; return; }
+    const clash = mine.filter((i) => theirs.indexOf(i) >= 0 && !same(val(out[li], i), val(srv, i), cols[i].type));
+    const row = out[li].slice();
+    theirs.forEach((i) => { if (mine.indexOf(i) < 0) row[i] = srv[i]; }); // colonnes modifiées seulement sur le serveur
+    out[li] = row;
+    if (!clash.length) { snap.set(key, { row: srv, version: v }); stats.merged++; return; }
+    conflicts.push({ key, kind: "both", fields: clash.map((i) => ({ col: cols[i].name, mine: val(row, i), server: val(srv, i) })), serverRow: sr });
+  });
+
+  feed.deleted.forEach((d) => {
+    const key = String(d.key), old = snap.get(key); if (!old || latest.has(key)) return;
+    const li = at(key);
+    if (li < 0) { snap.delete(key); return; }
+    if (!differs(out[li], old.row).length) { out.splice(li, 1); snap.delete(key); stats.removed++; return; }
+    conflicts.push({ key, kind: "server-deleted", fields: [], serverRow: null });
+  });
+
+  const keys: string[] = []; snap.forEach((_, k) => keys.push(k));
+  return { rows: out, conflicts, stats, snapshot: { header: snapshot.header, types: snapshot.types, values: keys.map((k) => snap.get(k)!.row), versions: keys.map((k) => snap.get(k)!.version) } };
+}
+
+/** Applique le choix de l'utilisateur pour un conflit : « server » (garder la version du serveur) ou « mine » (garder la mienne, elle sera envoyée). */
+export function resolveConflict(t: DataTable, state: { rows: Cell[][]; snapshot: Sheet }, c: Conflict, choice: "mine" | "server"): { rows: Cell[][]; snapshot: Sheet } {
+  const cols = columnsOf(t), keyIdx = indexOf(cols, (x) => x.name === t.primaryKey);
+  const rows = state.rows.map((r) => r.slice()), values = state.snapshot.values.map((r) => r.slice()), versions = state.snapshot.versions.slice();
+  const at = indexOf(rows, (r) => String(r[keyIdx]) === c.key), si = indexOf(values, (r) => String(r[keyIdx]) === c.key);
+  const srv = c.serverRow ? cellsOf(t, c.serverRow) : null, ver = c.serverRow ? versionOf(c.serverRow) : "";
+  const setSnap = (row: Cell[], v: string) => { if (si >= 0) { values[si] = row; versions[si] = v; } else { values.push(row); versions.push(v); } };
+  if (c.kind === "server-deleted") {
+    if (choice === "server") { if (at >= 0) rows.splice(at, 1); }
+    if (si >= 0) { values.splice(si, 1); versions.splice(si, 1); } // « garder la mienne » : la ligne sera recréée à l'envoi
+  } else if (choice === "server" && srv) { if (at >= 0) rows[at] = srv; else rows.push(srv); setSnap(srv, ver); }
+  else if (srv) setSnap(srv, ver); // « garder la mienne » : on repart de la version du serveur, la valeur locale sera envoyée
+  return { rows, snapshot: { header: state.snapshot.header, types: state.snapshot.types, values, versions } };
+}
