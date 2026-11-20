@@ -21,7 +21,9 @@ export type SavedItem = { name: string; kind: "query" | "action" | "procedure"; 
 export type RowRule = { col: string; value: string }; // value : « $user » (identifiant de connexion), « $user.colonne » (fiche de l'utilisateur) ou une valeur fixe
 export type RoleRights = { tables: Record<string, string[]>; queries: string[]; actions: string[]; rows?: Record<string, RowRule> };
 export type RoleSource = { table: string; match: string; column: string };
-export type Policy = { roleColumn?: string; roleSource?: RoleSource; roles: Record<string, RoleRights> };
+/** Isolation par client : une application vendue à plusieurs entreprises. Chaque ligne porte le client (ex. pharmacy_id) ; chaque utilisateur n'en voit que les siennes. */
+export type Isolation = { column: string; value?: string; exempt?: string[]; clientTable?: string };
+export type Policy = { roleColumn?: string; roleSource?: RoleSource; isolation?: Isolation; roles: Record<string, RoleRights> };
 
 export const VERSION_COL = "_berkios_version";
 const NUM_RE = /^(numeric|decimal|int|integer|bigint|smallint|double|real|float)/i;

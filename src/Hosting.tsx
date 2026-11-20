@@ -98,6 +98,10 @@ export function Hosting({ onPlans }: { onPlans: () => void }) {
       {sub && sub.access.state === "trial" && <div className="hosting-alert plan-trial"><b>i</b><span>Essai gratuit : <b>{sub.access.daysLeft ?? 0} jour(s) restant(s)</b> sur l'offre « {sub.plan} ». <button className="link" onClick={onPlans}>Choisir une offre</button></span></div>}
       {sub && sub.access.state === "expired" && <div className="hosting-alert plan-expired" role="alert"><b>!</b><span>Votre offre a expiré : vos données restent consultables, mais l'importation et les modifications sont suspendues. <button className="link" onClick={onPlans}>Renouveler mon offre</button></span></div>}
       {sub && sub.access.state === "active" && sub.access.daysLeft !== null && sub.access.daysLeft <= 7 && <div className="hosting-alert plan-trial"><b>i</b><span>Votre offre « {sub.plan} » expire dans {sub.access.daysLeft} jour(s). <button className="link" onClick={onPlans}>Renouveler</button></span></div>}
+      {sub?.clients && sub.clients.limit !== null && sub.clients.used >= sub.clients.limit * 0.8 && (
+        <div className={`hosting-alert ${sub.clients.used >= sub.clients.limit ? "plan-expired" : "plan-trial"}`} role="alert"><b>{sub.clients.used >= sub.clients.limit ? "!" : "i"}</b>
+          <span>{sub.clients.used >= sub.clients.limit ? `Palier de clients atteint (${sub.clients.used} / ${sub.clients.limit}) : vos clients actuels continuent, mais un nouveau client ne peut plus s'inscrire.` : `Vous approchez de votre palier de clients (${sub.clients.used} / ${sub.clients.limit}).`} <button className="link" onClick={onPlans}>Passer au palier supérieur</button></span></div>
+      )}
       {error && <div className="hosting-alert" role="alert"><b>!</b><span>{error}</span></div>}
       {caps && !caps.analyzer && <div className="hosting-alert"><b>!</b><span>La lecture des classeurs est momentanément indisponible côté serveur.</span></div>}
       {caps && !importable && <div className="hosting-alert"><b>!</b><span>La publication est momentanément indisponible. Vous pouvez analyser et simuler, mais pas encore importer.</span></div>}

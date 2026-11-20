@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { policyApi } from "./hosting";
 import { authTarget } from "./generate";
-import type { DataTable, Policy, RoleRights, RowRule, SavedItem } from "./dataops";
+import type { DataTable, Isolation, Policy, RoleRights, RowRule, SavedItem } from "./dataops";
 
 const OPS: [string, string][] = [["read", "Lire"], ["create", "Ajouter"], ["update", "Modifier"], ["delete", "Supprimer"]];
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Erreur inconnue");
@@ -33,7 +33,7 @@ export function Rights({ importId, tables, items }: { importId: string; tables: 
     setRole(name, { tables: all, queries: kind === "all" || kind === "read" ? ["*"] : [], actions: kind === "all" ? ["*"] : [], rows: {} });
   };
   const save = () => run(async () => {
-    const p: Policy = { roles: policy.roles, ...(policy.roleSource ? { roleSource: policy.roleSource } : policy.roleColumn ? { roleColumn: policy.roleColumn } : {}) };
+    const p: Policy = { roles: policy.roles, ...(policy.isolation?.column ? { isolation: { ...policy.isolation, value: policy.isolation.value || `$user.${policy.isolation.column}` } } : {}), ...(policy.roleSource ? { roleSource: policy.roleSource } : policy.roleColumn ? { roleColumn: policy.roleColumn } : {}) };
     await policyApi.save(importId, p); setActive(true); setInfo("Droits enregistrés. Ils s'appliquent tout de suite aux utilisateurs déjà connectés qui ont un rôle ; ceux qui se sont connectés AVANT la première activation des droits doivent se reconnecter.");
   });
 
@@ -124,11 +124,42 @@ export function Rights({ importId, tables, items }: { importId: string; tables: 
         <button disabled={!newRole.trim() || newRole.trim() in policy.roles} onClick={() => { setRole(newRole.trim(), empty()); setNewRole(""); }}>+ Ajouter ce rôle</button>
         <button disabled={"*" in policy.roles} onClick={() => setRole("*", empty())}>+ Rôle par défaut</button>
       </div>
+      <Isolation_ tables={tables} policy={policy} userTable={userTable?.table} onChange={(isolation) => setPolicy({ ...policy, isolation })} />
       <div style={box}>
         <button className="primary" disabled={busy} onClick={() => void save()}>Enregistrer les droits</button>
         {active && <button disabled={busy} onClick={() => { if (window.confirm("Supprimer toutes les restrictions ? Tout utilisateur connecté pourra lire et écrire sur tout le classeur.")) void run(async () => { await policyApi.remove(importId); setInfo("Restrictions supprimées."); await load(); }); }}>Supprimer les restrictions</button>}
       </div>
       <p className="muted">Les restrictions de lignes s'appliquent partout : lecture, export, modification, suppression, requêtes, calculs et actions. Une ligne créée par un utilisateur restreint lui est attribuée automatiquement. Le rôle est lu au moment de la connexion. Un changement de rôle d'un utilisateur s'applique à sa prochaine connexion.</p>
     </div>
+  );
+}
+
+/** Application multi-clients : une seule configuration, valable pour tous les clients actuels et futurs. */
+function Isolation_({ tables, policy, userTable, onChange }: { tables: DataTable[]; policy: Policy; userTable?: string; onChange: (i: Isolation | undefined) => void }) {
+  const iso = policy.isolation, on = Boolean(iso);
+  const count = (c: string) => tables.filter((t) => t.fields.some((f) => f.name === c && !f.secret)).length;
+  const cols = [...new Set(tables.flatMap((t) => t.fields.filter((f) => !f.secret).map((f) => f.name)))].filter((c) => count(c) >= 2);
+  const ut = tables.find((t) => t.table === userTable), userCols = ut ? ut.fields.filter((f) => !f.secret).map((f) => f.name) : [];
+  const roles = Object.keys(policy.roles).filter((r) => r !== "*");
+  const set = (p: Partial<Isolation>) => onChange({ column: iso?.column ?? "", ...iso, ...p });
+  return (
+    <fieldset style={{ margin: "14px 0", padding: "10px 12px", border: "1px solid var(--line)", borderRadius: 10 }}>
+      <legend><label><input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked ? { column: cols.find((c) => /(client|pharma|societe|entreprise|tenant|org|compte)/i.test(c)) ?? cols[0] ?? "", exempt: [] } : undefined)} /> <b>Plusieurs clients (application vendue à plusieurs entreprises)</b></label></legend>
+      <p className="muted" style={{ marginTop: 0 }}>Exemple : une application de pharmacie vendue à 50 pharmacies. Chaque ligne (produit, vente, client…) porte l'identifiant de sa pharmacie ; <b>chaque utilisateur ne voit et ne crée que les lignes de sa pharmacie</b>. Réglé une seule fois : une nouvelle pharmacie n'exige aucune configuration.</p>
+      {iso && (
+        <>
+          <div style={box}>
+            <label>Colonne « client » <select value={iso.column} onChange={(e) => set({ column: e.target.value, value: `$user.${e.target.value}` })}><option value="">—</option>{cols.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
+            <label>Elle figure dans la fiche de l'utilisateur sous <select value={(iso.value ?? "").replace("$user.", "") || iso.column} onChange={(e) => set({ value: `$user.${e.target.value}` })}>{userCols.map((c) => <option key={c} value={c}>{userTable}.{c}</option>)}</select></label>
+          </div>
+          <div style={box}>
+            <label>Table des clients (facultatif) <select value={iso.clientTable ?? ""} onChange={(e) => set({ clientTable: e.target.value || undefined })}><option value="">— aucune —</option>{tables.map((t) => <option key={t.table} value={t.table}>{t.table}</option>)}</select></label>
+            <span className="muted">Chaque utilisateur ne voit que sa propre ligne ; sert aussi à compter vos clients.</span>
+          </div>
+          <div style={box}><b>Voient tous les clients :</b>{roles.length ? roles.map((r) => <label key={r}><input type="checkbox" checked={(iso.exempt ?? []).includes(r)} onChange={(e) => set({ exempt: e.target.checked ? [...(iso.exempt ?? []), r] : (iso.exempt ?? []).filter((x) => x !== r) })} /> {r}</label>) : <span className="muted">(ajoutez d'abord des rôles, ex. « support »)</span>}</div>
+          <p className="muted">Les tables sans cette colonne (ex. un catalogue commun) restent partagées. Utilisez des <b>sessions utilisateur</b>, jamais une clé de lecture-écriture dans l'application des clients : une clé voit toutes les lignes.</p>
+        </>
+      )}
+    </fieldset>
   );
 }

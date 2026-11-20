@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BILLING_LABEL, BILLING_MONTHS, PLANS, fmtUsd, perMonth, priceFor, type Billing, type Plan } from "./plans";
+import { BILLING_LABEL, BILLING_MONTHS, PLANS, fmtUsd, perClient, perMonth, planForTier, priceFor, tierLabel, type Billing, type Plan, type Tier } from "./plans";
 
 const ROWS: [string, (p: Plan) => string | boolean][] = [
   ["Classeurs hébergés", (p) => p.limits.workbooks], ["Lignes de données", (p) => p.limits.rows], ["Appels API par mois", (p) => p.limits.calls],
@@ -14,11 +14,16 @@ const FAQ: [string, string][] = [
   ["Que signifie « 3 mois + 1 offert » ?", "Vous payez 3 mois et obtenez 4 mois de service : par exemple Équipe coûte 45 $ pour 4 mois au lieu de 60 $."],
   ["Comment payer ?", "Par carte ou par mobile money (M-PESA, Orange Money, Airtel Money), ou par transfert, selon votre pays."],
   ["Qu'est-ce qu'un client final (offre Éditeur) ?", "Une entreprise à qui vous revendez votre application Excel. Chacune a ses propres données, séparées des autres."],
+  ["Comment l'offre Éditeur est-elle facturée ?", "Par palier de clients : 1 à 10 clients 30 $, 11 à 50 clients 89 $, 51 à 100 clients 149 $, 101 à 500 clients 299 $ par mois. Plus vous avez de clients, moins chacun vous coûte. Au-delà ou pour un nombre illimité : sur devis."],
+  ["Mon palier de clients est atteint, que se passe-t-il ?", "Vos clients existants continuent de fonctionner. L'inscription d'un nouveau client est refusée tant que vous n'avez pas pris le palier supérieur, ce que vous pouvez faire à tout moment."],
 ];
 
 /** Tarifs d'hébergement : bascule mensuel / annuel, 4 offres, tableau comparatif, questions fréquentes. */
 export function Plans({ onChoose }: { onChoose: (p: Plan, billing: Billing) => void }) {
   const [billing, setBilling] = useState<Billing>("monthly");
+  const [tier, setTier] = useState(0);
+  // Pour l'offre Éditeur, le palier de clients choisi fixe le prix ; les autres offres sont inchangées.
+  const shown = (p: Plan): Plan => (p.tiers ? planForTier(p, p.tiers[tier] ?? p.tiers[0]) : p);
   return (
     <div className="plans">
       <p className="trial-banner"><b>Promotion : 3 mois payés = 4 mois de service</b>, et −30 % en paiement annuel.</p>
@@ -30,21 +35,22 @@ export function Plans({ onChoose }: { onChoose: (p: Plan, billing: Billing) => v
         ))}
       </div>
       <div className="grid plan-grid">
-        {PLANS.map((p) => (
+        {PLANS.map((base) => { const p = shown(base); return (
           <div className={`card plan ${p.featured ? "featured" : ""}`} key={p.id}>
             {p.featured && <span className="ribbon">Populaire</span>}
             <h3>{p.name}</h3>
             <p className="muted">{p.audience}</p>
+            {base.tiers && <label className="tier-pick">Nombre de clients <select value={tier} onChange={(e) => setTier(Number(e.target.value))} aria-label="Nombre de clients finaux">{base.tiers.map((t: Tier, i: number) => <option key={t.id} value={i}>{tierLabel(t, i, base.tiers)}</option>)}</select></label>}
             <p className="price">{fmtUsd(perMonth(p.monthly, billing))}<small>/mois</small></p>
             <p className="muted plan-sub">{billing === "monthly" ? "sans engagement" : billing === "quarterly" ? `${fmtUsd(priceFor(p.monthly, billing))} pour ${BILLING_MONTHS[billing]} mois (1 mois offert)` : `${fmtUsd(priceFor(p.monthly, billing))} par an (au lieu de ${fmtUsd(p.monthly * 12)})`}</p>
             <ul className="ticks">
               <li>{p.limits.workbooks} classeur(s) · {p.limits.rows} lignes</li>
-              {p.extra && <li>{p.extra}</li>}
+              {base.tiers ? <li>{fmtUsd(perClient(base.tiers[tier] ?? base.tiers[0]))} par client à pleine capacité · au-delà de 500 clients ou illimité : sur devis</li> : p.extra && <li>{p.extra}</li>}
               {p.features.map((f) => <li key={f}>{f}</li>)}
             </ul>
             <button className={p.featured ? "primary" : ""} onClick={() => onChoose(p, billing)}>Choisir {p.name}</button>
           </div>
-        ))}
+        ); })}
       </div>
 
       <details className="compare">

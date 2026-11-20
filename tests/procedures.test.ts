@@ -45,3 +45,14 @@ const curl = savedExample("curl", "https://s.test/x/data", item, "KEY");
 assert.match(curl, /-X POST/); assert.match(curl, /"lignes":\[\{"id":"valeur"/);
 assert.match(savedExample("js", "https://s.test/x/data", item, "K"), /method: "POST"/);
 console.log("procedures: ok");
+
+// 3. Procédure publique : l'indicateur est conservé, la route d'inscription et le VBA l'utilisent
+{
+  const pub = toProcedureDef("Inscription", [{ name: "nom", type: "text", required: true, fields: "" }], [{ ...stepEmpty("insert"), table: "factures", set: [{ col: "client", mode: "to", v: { k: "param", text: "nom" } }] }], [], true);
+  assert.equal(pub.public, true); assert.equal(fromProcedureDef(JSON.parse(JSON.stringify(pub))).isPublic, true); assert.equal(toProcedureDef("", [], [], []).public, undefined);
+  const it: SavedItem = { name: "inscription", kind: "procedure", def: pub as never, valid: true, createdAt: "", updatedAt: "", params: [{ name: "nom", type: "text", required: true }] };
+  assert.ok(routesOf(tables, [it]).some((r) => r.path === "/signup/inscription" && /publique/.test(r.title)));
+  assert.ok(vbaApp("https://s.test/admin/v1/excel-cloud/imports/abc/data", "bkk1.x", tables, [it]).includes('BK_Request("POST", "~/signup/inscription", bk_b)'));
+  assert.match(savedExample("curl", "https://s.test/x/data", it, "K"), /\/signup\/inscription/);
+}
+console.log("procedures (publiques): ok");

@@ -107,8 +107,10 @@ function queryVba(it: SavedItem): string {
   ].join("\n");
 }
 
+/** Procédure publique : appelable sans connexion (inscription d'un nouveau client), avec une clé de type « connexion ». */
+const isPublic = (it: SavedItem) => it.kind === "procedure" && (it.def as unknown as { public?: boolean }).public === true;
 function procedureVba(it: SavedItem): string {
-  const N = pascal(it.name), ps = orderedParams(it), url = `"~/act/${encodeURIComponent(it.name)}"`;
+  const N = pascal(it.name), ps = orderedParams(it), url = `"~/${isPublic(it) ? "signup" : "act"}/${encodeURIComponent(it.name)}"`;
   const params = [...ps.map((p) => (p.type === "list" ? `ByVal ${vbaIdent(p.name)} As Range` : p.optional ? `Optional ${vbaIdent(p.name)} As Variant` : `${vbaIdent(p.name)} As Variant`)), "Optional bk_idem As String = \"\""];
   const lists = ps.filter((p) => p.type === "list");
   const line = (p: (typeof ps)[number]) => {
@@ -154,7 +156,7 @@ function actionVba(it: SavedItem): string {
 
 /** Exemples (Power Query, curl, JavaScript, Python) d'une requête ou d'une action enregistrée. */
 export function savedExample(lang: "pq" | "curl" | "js" | "py", base: string, it: SavedItem, key: string): string {
-  const root = rootOf(base), path = `/${it.kind === "query" ? "q" : "act"}/${encodeURIComponent(it.name)}`, ps = it.params;
+  const root = rootOf(base), path = `/${it.kind === "query" ? "q" : isPublic(it) ? "signup" : "act"}/${encodeURIComponent(it.name)}`, ps = it.params;
   const sample = (n: string) => `${n}=valeur`, qs = ps.map((p) => sample(p.name)).join("&");
   const proc = it.kind === "procedure";
   const pv = (p: (typeof ps)[number]) => (p.type === "list" ? `[{${(p.fields ?? []).map((f) => `"${f}":"valeur"`).join(",")}}]` : `"valeur"`);
@@ -267,7 +269,7 @@ export function routesOf(tables: DataTable[], items: SavedItem[] = []): Route[] 
   for (const it of items.filter((i) => i.valid)) {
     const ps = it.params, group = "Requêtes enregistrées";
     if (it.kind === "query") r.push({ group, root: true, method: "GET", path: `/q/${it.name}${ps.length ? "?" + ps.map((p) => `${p.name}=<valeur>`).join("&") : ""}`, title: `${note(it)} — ajoutez ?format=csv pour Excel` });
-    else if (it.kind === "procedure") r.push({ group, root: true, method: "POST", path: `/act/${it.name}`, title: `${note(it)} (procedure : plusieurs etapes en une transaction, tout ou rien)`,
+    else if (it.kind === "procedure") r.push({ group, root: true, method: "POST", path: `/${isPublic(it) ? "signup" : "act"}/${it.name}`, title: `${note(it)} (procedure ${isPublic(it) ? "publique : inscription sans connexion, cle de type connexion" : "plusieurs etapes en une transaction, tout ou rien"})`,
       body: `{ "params": { ${ps.map((p) => `"${p.name}": ${p.type === "list" ? `[ { ${(p.fields ?? []).map((f) => `"${f}": …`).join(", ")} } ]` : "…"}`).join(", ")} }, "idempotencyKey": "<texte unique, facultatif>" }` });
     else r.push({ group, root: true, method: "POST", path: `/act/${it.name}`, title: `${note(it)} (${it.def.op === "insert" ? "ajoute une ligne" : "modifie une ligne"})`,
       body: `{ ${it.def.op === "insert" ? "" : '"key": "…", "expectedVersion": 1, '}"params": { ${ps.map((p) => `"${p.name}": …`).join(", ")} } }` });

@@ -39,3 +39,5 @@ Dès que les droits sont actifs, **tout ce qui n'est pas autorisé est refusé**
 Les rôles sont lus à la connexion : après un changement de rôle, l'utilisateur doit se reconnecter.
 
 > **Plusieurs applications, un seul backend.** Vous pouvez relier plusieurs applications (classeur, site, mobile) au même classeur hébergé, chacune avec sa clé ou ses sessions. Les écritures concurrentes sont protégées par les versions de lignes.
+
+> **Vous vendez l'application à plusieurs entreprises ?** Activez l'isolation par client : voir le chapitre [Éditeurs](#10-editeurs).

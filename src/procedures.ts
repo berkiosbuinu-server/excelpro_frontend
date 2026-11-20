@@ -9,7 +9,7 @@ export type PStep = {
   left: V; cmp: string; right: V; message: string; over: string; steps: PStep[];
 };
 export type PParam = { name: string; type: "text" | "number" | "date" | "bool" | "list"; required: boolean; fields: string };
-export type ProcedureDef = { description?: string; params: { name: string; type: string; required?: boolean; fields?: string[] }[]; steps: unknown[]; returns?: string[] };
+export type ProcedureDef = { description?: string; public?: boolean; params: { name: string; type: string; required?: boolean; fields?: string[] }[]; steps: unknown[]; returns?: string[] };
 
 export const CMP: [string, string][] = [["eq", "est égal à"], ["ne", "est différent de"], ["gt", "est supérieur à"], ["gte", "est supérieur ou égal à"], ["lt", "est inférieur à"], ["lte", "est inférieur ou égal à"], ["isnull", "est vide"], ["notnull", "n'est pas vide"]];
 export const CALC: [string, string][] = [["add", "+"], ["sub", "−"], ["mul", "×"], ["div", "÷"]];
@@ -58,17 +58,19 @@ export function stepFromDef(d: unknown): PStep {
   return s;
 }
 
-export function toProcedureDef(description: string, params: PParam[], steps: PStep[], returns: string[]): ProcedureDef {
+export function toProcedureDef(description: string, params: PParam[], steps: PStep[], returns: string[], isPublic = false): ProcedureDef {
   const def: ProcedureDef = {
     params: params.map((p) => ({ name: p.name.trim(), type: p.type, ...(p.required ? {} : { required: false }), ...(p.type === "list" ? { fields: p.fields.split(/[,\s;]+/).map((f) => f.trim()).filter(Boolean) } : {}) })),
     steps: steps.map(stepToDef),
   };
   if (description.trim()) def.description = description.trim();
   if (returns.length) def.returns = returns;
+  if (isPublic) def.public = true;
   return def;
 }
-export function fromProcedureDef(d: ProcedureDef): { description: string; params: PParam[]; steps: PStep[]; returns: string[] } {
+export function fromProcedureDef(d: ProcedureDef): { description: string; params: PParam[]; steps: PStep[]; returns: string[]; isPublic: boolean } {
   return {
+    isPublic: d.public === true,
     description: d.description ?? "",
     params: (d.params ?? []).map((p) => ({ name: p.name, type: p.type as PParam["type"], required: p.required !== false, fields: (p.fields ?? []).join(", ") })),
     steps: (d.steps ?? []).map(stepFromDef), returns: d.returns ?? [],

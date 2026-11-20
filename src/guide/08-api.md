@@ -49,6 +49,10 @@ curl -X PUT -H "Authorization: Bearer $CLE" -H "Content-Type: application/json" 
   "https://server.berkios.online/admin/v1/excel-cloud/imports/ID/data/vente/5"
 ```
 
+## Inscription publique
+
+`POST /imports/<id>/signup/<procedure>` avec `{ "params": { … } }` et une clé de type « connexion » : appelle une procédure marquée publique (30 appels par heure). Voir [Éditeurs](#10-editeurs).
+
 ## Codes de réponse
 
 | Code | Signification |
@@ -56,7 +60,7 @@ curl -X PUT -H "Authorization: Bearer $CLE" -H "Content-Type: application/json" 
 | 200 / 201 | Réussi / créé |
 | 401 | Clé ou jeton absent, invalide ou expiré |
 | 402 | Offre absente, ou offre expirée (lecture seule) |
-| 403 | Droits insuffisants, ou quota atteint (lignes, clés, requêtes) |
+| 403 | Droits insuffisants, ou quota atteint (lignes, clés, requêtes, clients) |
 | 404 | Table, ligne, requête ou action introuvable |
 | 409 | Conflit de version, doublon de clé, ou vérification refusée (ex. « Stock insuffisant ») |
 | 422 | Valeur ou paramètre invalide |

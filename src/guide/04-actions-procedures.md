@@ -58,3 +58,4 @@ Si la connexion coupe, vous ne savez pas si la facture a été créée. Envoyez 
 - Une colonne protégée (mot de passe) ne peut être écrite qu'à partir d'un **paramètre**.
 - Si la clé d'une table est générée par le serveur, utilisez le résultat d'une étape nommée (`f.id`) pour la réutiliser.
 - Les restrictions de lignes du rôle s'appliquent à chaque table touchée.
+- **Procédure publique** (case à cocher dans l'éditeur) : appelable sans connexion avec une clé de type « connexion », pour une inscription. Elle ne peut qu'**ajouter** et **vérifier** (jamais lire, modifier ni supprimer), dans la limite de 30 appels par heure. Voir [Éditeurs](#10-editeurs).

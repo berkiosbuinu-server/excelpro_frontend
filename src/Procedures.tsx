@@ -100,16 +100,17 @@ function Steps({ steps, set, tables, scope, params, depth }: { steps: PStep[]; s
 
 /** Constructeur de procédure : paramètres, étapes, essai de sauvegarde. Le serveur valide tout et exécute en une transaction. */
 export function ProcedureBuilder({ importId, tables, item, onDone, onCancel }: { importId: string; tables: DataTable[]; item?: SavedItem; onDone: (name: string) => Promise<void>; onCancel: () => void }) {
-  const init = item ? fromProcedureDef(item.def as unknown as ProcedureDef) : { description: "", params: [], steps: [], returns: [] as string[] };
+  const init = item ? fromProcedureDef(item.def as unknown as ProcedureDef) : { description: "", params: [], steps: [], returns: [] as string[], isPublic: false };
   const [name, setName] = useState(item?.name ?? ""); const [description, setDescription] = useState(init.description);
   const [params, setParams] = useState<PParam[]>(init.params); const [steps, setSteps] = useState<PStep[]>(init.steps); const [returns, setReturns] = useState<string[]>(init.returns);
+  const [isPublic, setIsPublic] = useState(init.isPublic);
   const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const ids = [...new Set(declaredIn(steps).map((d) => d.id))];
   const save = async () => {
     setBusy(true); setError("");
     try {
       if (!NAME_RE.test(name)) throw new Error("Nom invalide : 2 à 40 caractères, minuscules, chiffres et tirets, en commençant par une lettre (ex. creer-facture).");
-      await queriesApi.save(importId, name, "procedure", toProcedureDef(description, params, steps, returns.filter((r) => ids.includes(r))));
+      await queriesApi.save(importId, name, "procedure", toProcedureDef(description, params, steps, returns.filter((r) => ids.includes(r)), isPublic));
       await onDone(name);
     } catch (e) { setError(errMsg(e)); } finally { setBusy(false); }
   };
@@ -122,6 +123,8 @@ export function ProcedureBuilder({ importId, tables, item, onDone, onCancel }: {
         <label>Nom de la route <input value={name} disabled={Boolean(item)} maxLength={40} placeholder="creer-facture" onChange={(e) => setName(e.target.value.toLowerCase())} style={mono} /></label>
         <label style={{ flex: 1 }}>Description <input style={{ width: "100%" }} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
       </div>
+      <label style={{ display: "block", margin: "8px 0" }}><input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} /> <b>Procédure publique</b> : appelable <b>sans connexion</b>, avec une clé de type « connexion » (ex. inscription d'un nouveau client).
+        {isPublic && <span className="muted"> Elle ne peut que <b>ajouter</b> des lignes et vérifier des conditions : jamais lire, modifier ni supprimer. Fixez les valeurs sensibles (rôle = « gerant ») dans les étapes plutôt que de les laisser en paramètres. Limitée à 30 appels par heure.</span>}</label>
       <b>Paramètres d'appel</b> <span className="muted">(ce que l'appelant fournit ; une « liste de lignes » reçoit les lignes de la facture, d'une plage Excel)</span>
       {params.map((p, i) => (
         <div key={i} style={row}>

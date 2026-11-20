@@ -465,3 +465,8 @@ main { padding-bottom: 130px; }
 .md th { background: var(--accent-soft); }
 @media (max-width: 860px) { .guide { grid-template-columns: 1fr; } .guide-nav { position: static; max-height: none; } .guide-body { padding: 18px 16px; } }
 @media print { header, .guide-nav, .guide-pager, .guide-toc { display: none !important; } .guide { display: block; } .guide-body { border: 0; box-shadow: none; padding: 0; } }
+
+/* Offre Éditeur : sélecteur du palier de clients, dans la carte tarifaire */
+.tier-pick { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 2px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.tier-pick select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.tier-pick select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
