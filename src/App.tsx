@@ -1,12 +1,13 @@
 import { Guide } from "./Guide";
 import { useCallback, useEffect, useState } from "react";
 import {
-  api, setToken, hasToken, downloadDelivery, downloadSource, money, openProof,
+  api, FALLBACK_TRANSFER_NUMBER, setToken, hasToken, downloadDelivery, downloadSource, money, openProof,
   type Order, type Pricing, type Conversation, type Delivery, type CheckReport, type ItemStatus, type Verdict, type ChecklistRow, type CheckItem,
 } from "./api";
 import { PayModal } from "./PayModal";
 import { Runner } from "./Runner";
 import { Hosting } from "./Hosting";
+import { Sites } from "./Sites";
 import { About } from "./About";
 import { Plans } from "./Plans";
 import { Subscribe } from "./Subscribe";
@@ -15,7 +16,7 @@ import type { Billing, Plan } from "./plans";
 import { ChatWidget } from "./Chat";
 import { DevicesShowcase, Logo, PlatformBadge, PlatformIcon, PLATFORM_COLORS } from "./visuals";
 
-type Page = "home" | "about" | "guide" | "login" | "submit" | "studio" | "orders" | "hosting" | "admin";
+type Page = "home" | "about" | "guide" | "login" | "submit" | "studio" | "orders" | "hosting" | "sites" | "admin";
 const LABELS: Record<string, string> = {
   windows: "Windows", android: "Android", linux: "Linux", ios: "iOS", macos: "macOS", web: "Web",
 };
@@ -106,6 +107,7 @@ export default function App() {
               <button className={page === "studio" ? "active" : ""} onClick={() => go("studio")}>Studio</button>
               <button className={page === "orders" ? "active" : ""} onClick={() => go("orders")}>Mes commandes</button>
               {hasPlan && <button className={page === "hosting" ? "active" : ""} onClick={() => go("hosting")}>Mon hébergement</button>}
+              <button className={page === "sites" ? "active" : ""} onClick={() => go("sites")}>Mes sites</button>
               {role === "admin" && <button className={page === "admin" ? "active" : ""} onClick={() => go("admin")}>Administration</button>}
               <button onClick={logout}>Déconnexion</button>
             </>
@@ -126,6 +128,7 @@ export default function App() {
         {page === "hosting" && (!email ? <Login onAuth={onAuth} /> : sub === undefined ? <p className="muted">Chargement…</p> : hasPlan ? <Hosting onPlans={() => goSection("hebergement")} /> : (
           <section className="hosting-shell"><div className="hosting-empty"><div className="hosting-symbol">▤</div><h2>Choisissez une offre d'hébergement</h2><p>L'hébergement est réservé aux comptes qui ont une offre. Choisissez-en une, payez par mobile money : elle est activée dès que nous avons vérifié le paiement.</p><button className="primary" onClick={() => goSection("hebergement")}>Voir les offres</button></div></section>
         ))}
+        {page === "sites" && (email ? <Sites transferNumber={pricing?.transfer_number || FALLBACK_TRANSFER_NUMBER} /> : <Login onAuth={onAuth} />)}
         {page === "admin" && role === "admin" && <Admin />}
       </main>
       <ChatWidget pricing={pricing} email={email} isAdmin={role === "admin"} onAdmin={() => go("admin")} />

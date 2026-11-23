@@ -36,26 +36,29 @@ async function connection(force = false) {
 }
 export const resetHostingSession = () => { cache = null; };
 
-async function call<T>(method: string, path: string, opts: { json?: unknown; raw?: Blob } = {}, retried = false): Promise<T> {
+async function call<T>(method: string, path: string, opts: { json?: unknown; raw?: Blob } = {}, retried = false, base = "/admin/v1/excel-cloud"): Promise<T> {
   const c = await connection(retried);
   const headers: Record<string, string> = { Accept: "application/json", Authorization: `Bearer ${c.token}` };
   if (opts.json !== undefined) headers["Content-Type"] = "application/json";
   if (opts.raw) headers["Content-Type"] = "application/octet-stream";
   let res: Response;
   try {
-    res = await fetch(`${c.url}/admin/v1/excel-cloud${path}`, {
+    res = await fetch(`${c.url}${base}${path}`, {
       method, headers, credentials: "omit", signal: AbortSignal.timeout(120_000),
       body: opts.raw ?? (opts.json !== undefined ? JSON.stringify(opts.json) : undefined),
     });
   } catch {
     throw new Error("Serveur d'hébergement injoignable. Vérifiez votre connexion et réessayez.");
   }
-  if (res.status === 401 && !retried) return call<T>(method, path, opts, true); // jeton expiré : on en demande un nouveau une fois
+  if (res.status === 401 && !retried) return call<T>(method, path, opts, true, base); // jeton expiré : on en demande un nouveau une fois
   let body: { data?: T; error?: { message?: string } } = {};
   try { body = await res.json(); } catch { /* corps vide */ }
   if (!res.ok) throw new Error(body.error?.message || `Requête refusée (code ${res.status}).`);
   return body.data as T;
 }
+
+/** Appel de l'hébergement de sites web (/admin/v1/sites) avec le même jeton que l'hébergement Excel. */
+export const callSites = <T,>(method: string, path: string, opts: { json?: unknown; raw?: Blob } = {}) => call<T>(method, path, opts, false, "/admin/v1/sites");
 
 /** Copie des options avec le traitement d'un champ sensible modifié (le serveur recalcule le plan et invalide la simulation). */
 export function withSensitiveMode(options: ImportView["options"], sourceId: string, key: string, mode: SensitiveMode): ImportView["options"] {

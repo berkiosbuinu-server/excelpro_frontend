@@ -1,3 +1,4 @@
+import { SITE_PRICING } from "./sites";
 import { useState } from "react";
 import { BILLING_LABEL, BILLING_MONTHS, PLANS, fmtUsd, perClient, perMonth, planForTier, priceFor, tierLabel, type Billing, type Plan, type Tier } from "./plans";
 
@@ -51,6 +52,19 @@ export function Plans({ onChoose }: { onChoose: (p: Plan, billing: Billing) => v
             <button className={p.featured ? "primary" : ""} onClick={() => onChoose(p, billing)}>Choisir {p.name}</button>
           </div>
         ); })}
+      </div>
+
+      <div className="sites-pricing" id="sites-tarifs">
+        <h2>Hébergement de sites web</h2>
+        <p className="muted center">Publiez le site créé avec BERKIOS Graphic. Annuel : −20 %. Connectez-vous puis ouvrez « Mes sites ».</p>
+        <div className="plan-grid">
+          {SITE_PRICING.map((s) => (
+            <div key={s.id} className={`card plan${s.id === "site-pro" ? " featured" : ""}`}>
+              <h3>Site {s.name}</h3><p className="price">{s.headline}</p><p className="muted">{s.note}</p>
+              <ul>{s.features.map((f) => <li key={f}>{f}</li>)}</ul>
+            </div>
+          ))}
+        </div>
       </div>
 
       <details className="compare">
