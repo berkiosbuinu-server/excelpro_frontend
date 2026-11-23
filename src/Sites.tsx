@@ -170,7 +170,14 @@ function Domains({ site, max, disabled, onAdd, onVerify, onRemove }: { site: Sit
               <ul><li>TXT — nom <code>{x.verification.txt.name}</code> — valeur <code>{x.verification.txt.value}</code></li><li>ou CNAME (sous-domaine, ex. www) — nom <code>{x.verification.cname.name}</code> — valeur <code>{x.verification.cname.value}</code></li></ul>
             </div>
           )}
-          <div className="sites-actions">{x.status === "pending" && <button className="primary" onClick={() => void onVerify(x.domain)}>Vérifier</button>}<button disabled={disabled} onClick={() => void onRemove(x.domain)}>Retirer</button></div>
+          {x.status === "verified" && x.tls !== "active" && x.target && (
+            <div className="muted">
+              <p>Dernière étape : <b>pointez le domaine vers notre serveur</b>, puis patientez quelques minutes : le certificat HTTPS est obtenu automatiquement.</p>
+              <ul>{x.target.a && <li>Domaine principal (ex. monentreprise.com) : enregistrement <b>A</b> vers <code>{x.target.a}</code></li>}<li>Sous-domaine (ex. www) : enregistrement <b>CNAME</b> vers <code>{x.target.cname}</code></li></ul>
+              <small>Si votre domaine a un enregistrement AAAA (IPv6), supprimez-le.</small>
+            </div>
+          )}
+          <div className="sites-actions">{x.status === "pending" && <button className="primary" onClick={() => void onVerify(x.domain)}>Vérifier</button>}{x.status === "verified" && x.tls === "failed" && <button className="primary" onClick={() => void onVerify(x.domain)}>Réessayer</button>}<button disabled={disabled} onClick={() => void onRemove(x.domain)}>Retirer</button></div>
         </div>
       ))}
       {site.domains.length < max

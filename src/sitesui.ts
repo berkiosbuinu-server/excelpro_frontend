@@ -9,7 +9,7 @@ export const SITE_PRICING = [
 export const fmtUsdCents = (c: number) => `${(c / 100).toLocaleString("fr-FR", { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })} $`;
 export const fmtBytes = (n: number) => (n < 1024 ? `${n} o` : n < 1048576 ? `${(n / 1024).toFixed(0)} Ko` : n < 1073741824 ? `${(n / 1048576).toFixed(1).replace(".", ",")} Mo` : `${(n / 1073741824).toFixed(2).replace(".", ",")} Go`);
 export const BILLING_SITE_LABEL: Record<string, string> = { monthly: "1 mois", start5: "5 mois", yearly: "12 mois (−20 %)" };
-export const TLS_LABEL: Record<string, string> = { none: "HTTPS : en attente de certificat", pending: "HTTPS : certificat en cours", active: "HTTPS actif", failed: "HTTPS : échec, nous contacter" };
+export const TLS_LABEL: Record<string, string> = { none: "HTTPS : en attente (le domaine doit pointer vers notre serveur)", pending: "HTTPS : certificat en cours…", active: "HTTPS actif", failed: "HTTPS : certificat non obtenu, nouvel essai automatique" };
 export const SITE_ID_RE = /^[a-z][a-z0-9-]{2,39}$/;
 /** Identifiant proposé d'après un nom (« Ma Pharmacie » → « ma-pharmacie »). */
 export function slugify(name: string): string {

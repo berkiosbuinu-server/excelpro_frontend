@@ -11,7 +11,7 @@ export type SitePlan = {
   usage: { sites: number; storageBytes: number }; pending: SiteRequest | null; offers: SiteOffer[];
 };
 export type SiteVersion = { n: number; createdAt: string; size: number; files: number; note: string; current: boolean };
-export type SiteDomain = { domain: string; status: "pending" | "verified"; tls: "none" | "pending" | "active" | "failed"; createdAt: string; verification?: { txt: { name: string; value: string }; cname: { name: string; value: string }; note: string } };
+export type SiteDomain = { domain: string; status: "pending" | "verified"; tls: "none" | "pending" | "active" | "failed"; createdAt: string; target?: { a: string | null; cname: string }; verification?: { txt: { name: string; value: string }; cname: { name: string; value: string }; note: string } };
 export type SiteView = {
   id: string; name: string; url: string; settings: { spa?: boolean }; currentVersion: number | null; versions: SiteVersion[]; storageBytes: number;
   domains: SiteDomain[]; env: Record<string, string>; createdAt: string; updatedAt: string; deployed?: { version: number; files: number; bytes: number; ignored: number };

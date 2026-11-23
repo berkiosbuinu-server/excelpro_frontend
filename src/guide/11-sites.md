@@ -20,7 +20,11 @@ ExcelPro héberge le site créé avec BERKIOS Graphic (moteur « Site web (HTML)
 
 ## Domaine personnalisé (Pro)
 
-Ajoutez votre domaine, puis créez chez votre registrar l'enregistrement TXT ou CNAME indiqué et cliquez **Vérifier**. Voir aussi [le guide de démarrage](00-demarrer.md).
+1. Ajoutez votre domaine, puis créez chez votre registrar l'enregistrement TXT (ou CNAME) indiqué et cliquez **Vérifier** : cela prouve que le domaine est à vous.
+2. Pointez ensuite le domaine vers notre serveur : un enregistrement **A** vers l'adresse IP affichée (domaine principal), ou un **CNAME** vers l'adresse `.sites.berkios.online` de votre site (sous-domaine comme `www`). Supprimez un éventuel enregistrement AAAA.
+3. Quelques minutes plus tard, le certificat HTTPS est obtenu automatiquement et l'écran affiche « HTTPS actif ». En cas d'échec, corrigez le DNS puis cliquez **Réessayer**.
+
+Voir aussi [le guide de démarrage](00-demarrer.md).
 
 ## Fin d'abonnement
 
