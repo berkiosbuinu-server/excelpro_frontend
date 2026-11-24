@@ -71,7 +71,7 @@ export function Plans({ onChoose }: { onChoose: (p: Plan, billing: Billing) => v
         <summary>Comparer les offres en détail</summary>
         <div className="scroll-x">
           <table>
-            <thead><tr><th /> {PLANS.map((p) => <th key={p.id}>{p.name}</th>)}</tr></thead>
+            <thead><tr><th />{PLANS.map((p) => <th key={p.id}>{p.name}</th>)}</tr></thead>
             <tbody>{ROWS.map(([label, f]) => (
               <tr key={label}><th scope="row">{label}</th>{PLANS.map((p) => { const v = f(p); return <td key={p.id}>{v === true ? "✔" : v === false ? "—" : v}</td>; })}</tr>
             ))}</tbody>

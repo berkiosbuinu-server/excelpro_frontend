@@ -7,18 +7,27 @@ const WA_ICON = (
   </svg>
 );
 
-export function ChatWidget({ pricing, email, isAdmin, onAdmin }: { pricing: Pricing | null; email: string | null; isAdmin: boolean; onAdmin: () => void }) {
+export const OPEN_CHAT_EVENT = "excelpro:chat";
+
+export function ChatWidget({ pricing, email }: { pricing: Pricing | null; email: string | null }) {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const wa = pricing?.whatsapp_contact || FALLBACK_WHATSAPP;
 
+  // Le menu « Plus » de l'en-tête ouvre la messagerie par cet événement.
   useEffect(() => {
-    if (!email || isAdmin) { setUnread(0); return; }
+    const h = () => setOpen(true);
+    window.addEventListener(OPEN_CHAT_EVENT, h);
+    return () => window.removeEventListener(OPEN_CHAT_EVENT, h);
+  }, []);
+
+  useEffect(() => {
+    if (!email) { setUnread(0); return; }
     const load = () => api.unread().then((r) => setUnread(r.count)).catch(() => undefined);
     load();
     const t = setInterval(load, 20000);
     return () => clearInterval(t);
-  }, [email, isAdmin, open]);
+  }, [email, open]);
 
   return (
     <>
@@ -26,7 +35,7 @@ export function ChatWidget({ pricing, email, isAdmin, onAdmin }: { pricing: Pric
         <a className="fab wa" href={whatsappUrl(wa, "Bonjour ExcelPro, j'ai une question.")} target="_blank" rel="noopener noreferrer" aria-label="Nous écrire sur WhatsApp">
           {WA_ICON}<span>WhatsApp</span>
         </a>
-        <button className="fab chat" onClick={() => (isAdmin ? onAdmin() : setOpen(true))} aria-label="Nous écrire">
+        <button className="fab chat" onClick={() => setOpen(true)} aria-label="Nous écrire">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 12a8 8 0 0 1-11.5 7.2L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
           <span>Nous écrire</span>
           {unread > 0 && <b className="badge-n">{unread}</b>}
