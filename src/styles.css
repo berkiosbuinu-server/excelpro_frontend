@@ -431,3 +431,12 @@ input[type="file"] { display: block; width: 100%; margin-top: 6px; padding: 10px
 .hosting-empty { margin-top: 20px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 @media print { .topbar, .footer, .fabs { display: none !important; } body { padding-top: 0; } }
+
+/* Déploiement depuis Git */
+.git-copy { display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); min-width: 0; }
+.git-copy-l { flex: none; font-size: .8rem; font-weight: 700; opacity: .7; min-width: 5.2rem; }
+.git-copy code { flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-all; font-size: .82rem; }
+.git-status { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); }
+.git-status.git-ok { border-color: var(--brand); } .git-status.git-error { border-color: var(--err); color: var(--err); }
+.git-status.git-running { border-style: dashed; }
+@media (max-width: 640px) { .git-copy { flex-wrap: wrap; } .git-copy-l { min-width: 0; width: 100%; } }

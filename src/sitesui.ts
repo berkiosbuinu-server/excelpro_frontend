@@ -23,3 +23,17 @@ export function accessNotice(a: SiteAccess): { level: "info" | "warn" | "error";
   if (a.state === "active" && a.daysLeft !== null && a.daysLeft <= 7) return { level: "info", text: `Votre offre expire dans ${a.daysLeft} jour(s).` };
   return null;
 }
+
+/** Adresse publique du webhook (le serveur d'hébergement, pas l'API ExcelPro) : à coller dans GitHub, GitLab, Bitbucket ou Gitea. */
+export const SITES_HOOK_BASE = "https://server.berkios.online/admin/v1/sites/hook";
+export const hookUrl = (siteId: string) => `${SITES_HOOK_BASE}/${siteId}`;
+export const GIT_STATUS_LABEL: Record<string, string> = { idle: "Pas encore déployé", running: "Déploiement en cours…", ok: "Dernier déploiement réussi", error: "Dernier déploiement en échec" };
+/** Vérification légère côté navigateur (le serveur refait toujours la vraie vérification). Renvoie un message d'erreur ou "". */
+export function repoUrlError(raw: string): string {
+  const s = raw.trim();
+  if (!s) return "Indiquez l'adresse du dépôt.";
+  if (/^https?:\/\/[^/]*@/i.test(s)) return "N'indiquez ni identifiant ni jeton dans l'adresse. Pour un dépôt privé, utilisez l'adresse SSH.";
+  if (/^https:\/\/[^/@\s]+\/[^\s]+$/i.test(s) || /^git@[^:/@\s]+:[^\s]+$/i.test(s) || /^ssh:\/\/git@[^/@\s]+\/[^\s]+$/i.test(s)) return "";
+  return "Format attendu : https://github.com/compte/depot.git ou git@github.com:compte/depot.git";
+}
+export const isSshRepo = (raw: string) => /^(git@|ssh:\/\/)/i.test(raw.trim());

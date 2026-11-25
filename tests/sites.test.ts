@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { buildZip, crc32, pick } from "../src/zip.ts";
-import { slugify, accessNotice, fmtUsdCents, fmtBytes, SITE_ID_RE, SITE_PRICING } from "../src/sitesui.ts";
+import { slugify, accessNotice, fmtUsdCents, fmtBytes, SITE_ID_RE, SITE_PRICING, repoUrlError, isSshRepo, hookUrl, GIT_STATUS_LABEL } from "../src/sitesui.ts";
 const enc = new TextEncoder();
 assert.equal(crc32(enc.encode("123456789")), 0xcbf43926);
 // archive : relue par python (zlib) et par le lecteur du serveur
@@ -22,4 +22,10 @@ assert.ok(SITE_ID_RE.test(slugify("Ma Pharmacie")));
 assert.equal(fmtUsdCents(1920), "19,20 $"); assert.equal(fmtUsdCents(1000), "10 $"); assert.equal(fmtBytes(1536), "2 Ko"); assert.equal(fmtBytes(104857600), "100,0 Mo");
 assert.equal(accessNotice({ state: "active", daysLeft: 30 } as never), null); assert.equal(accessNotice({ state: "grace" } as never)?.level, "warn"); assert.equal(accessNotice({ state: "expired" } as never)?.level, "error"); assert.equal(accessNotice({ state: "active", daysLeft: 3 } as never)?.level, "info");
 assert.deepEqual(SITE_PRICING.map((p) => p.monthly), [2, 10]);
+// Git
+assert.equal(repoUrlError(""), "Indiquez l'adresse du dépôt."); assert.equal(repoUrlError("https://github.com/a/b.git"), ""); assert.equal(repoUrlError("git@github.com:a/b.git"), ""); assert.equal(repoUrlError("ssh://git@gitlab.com/a/b.git"), "");
+for (const bad of ["http://github.com/a/b", "github.com/a/b", "https://user:tok@github.com/a/b", "https://github.com", "ftp://x/y"]) assert.notEqual(repoUrlError(bad), "", bad);
+assert.match(repoUrlError("https://u:t@github.com/a/b"), /ni identifiant/);
+assert.equal(isSshRepo("git@github.com:a/b.git"), true); assert.equal(isSshRepo("https://github.com/a/b"), false);
+assert.equal(hookUrl("demo"), "https://server.berkios.online/admin/v1/sites/hook/demo"); assert.ok(GIT_STATUS_LABEL.running && GIT_STATUS_LABEL.ok && GIT_STATUS_LABEL.error);
 console.log("sites.test OK");

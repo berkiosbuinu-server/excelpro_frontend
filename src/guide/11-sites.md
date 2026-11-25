@@ -14,6 +14,18 @@ ExcelPro héberge le site créé avec BERKIOS Graphic (moteur « Site web (HTML)
 2. Onglet **Publier** : choisissez le dossier généré, ou un fichier .zip. La page d'accueil doit être `index.html`.
 3. Cliquez **Mettre en ligne**. Chaque publication crée une version ; l'onglet **Versions** permet de revenir en arrière.
 
+## Déployer depuis Git
+
+Au lieu de déposer un dossier à la main, reliez votre dépôt **GitHub, GitLab, Bitbucket** ou Gitea : onglet **Déploiements** → « Déploiement depuis Git ».
+
+1. Collez l'adresse du dépôt (`https://github.com/compte/mon-site.git`), la branche (`main` par défaut) et, si besoin, le dossier à publier (`dist`, `public`…). Laissez vide pour publier la racine.
+2. Cliquez sur **Connecter le dépôt**, puis sur **Déployer maintenant**. Chaque déploiement crée une nouvelle version (vous pouvez revenir en arrière).
+3. Pour que chaque `git push` mette le site à jour, ajoutez un **webhook** dans votre dépôt (Settings → Webhooks) avec l'adresse et le secret affichés, au format `application/json`.
+
+**Dépôt privé :** utilisez l'adresse SSH (`git@github.com:compte/depot.git`). Nous générons une clé de déploiement : ajoutez-la en lecture seule dans le dépôt (GitHub : Settings → Deploy keys).
+
+**Important :** aucune compilation n'est faite sur nos serveurs. Les fichiers du dépôt sont publiés tels quels, et `index.html` doit se trouver à la racine du dossier choisi. Pour un site React, Vite ou similaire, poussez le dossier compilé. Les fichiers cachés (`.env`, `.git`…) ne sont jamais publiés.
+
 ## Variables d'environnement (Pro)
 
 Écrivez `%%NOM%%` dans vos pages : la valeur est insérée à la publication. Ces valeurs sont **publiques** : n'y mettez jamais de secret.

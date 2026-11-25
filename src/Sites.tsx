@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { archiveOf, pick, type Picked } from "./zip";
-import { BILLING_SITE_LABEL, SITES_DOMAIN, SITE_ID_RE, TLS_LABEL, accessNotice, fmtBytes, fmtUsdCents, sitesApi, slugify, type SiteAccess, type SiteOffer, type SitePlan, type SiteRow, type SiteView } from "./sites";
+import { GIT_STATUS_LABEL, hookUrl, isSshRepo, repoUrlError } from "./sitesui";
+import { BILLING_SITE_LABEL, SITES_DOMAIN, SITE_ID_RE, TLS_LABEL, accessNotice, fmtBytes, fmtUsdCents, sitesApi, slugify, type SiteAccess, type SiteGit, type SiteOffer, type SitePlan, type SiteRow, type SiteView } from "./sites";
 import { CopyButton, Icon, useEscape, useScrollLock, useToast } from "./ui";
 import { errMsg } from "./labels";
 
@@ -135,6 +136,11 @@ export function Sites({ transferNumber }: { transferNumber: string }) {
             onAddDomain={async (d) => { const s = await act("dom", () => sitesApi.addDomain(site.id, d)); if (s) update(s); }}
             onVerifyDomain={async (d) => { const r = await act("dom", () => sitesApi.verifyDomain(site.id, d)); if (r) { update(r.site); if (r.verified) show(`${d} est vérifié.`); else show("Pas encore détecté : l'enregistrement DNS peut mettre du temps à se propager. Réessayez dans quelques minutes.", "err"); } }}
             onRemoveDomain={async (d) => { const s = await act("dom", () => sitesApi.removeDomain(site.id, d)); if (s) update(s); }}
+            onGitSave={async (b) => { const s = await act("git", () => sitesApi.setGit(site.id, b), "Dépôt enregistré."); if (s) update(s); }}
+            onGitDeploy={async () => { const s = await act("gitdeploy", () => sitesApi.deployGit(site.id)); if (s) update(s); }}
+            onGitRegen={async (b) => { const s = await act("gitregen", () => sitesApi.regenGit(site.id, b), b.key ? "Nouvelle clé générée : remplacez-la dans les réglages de votre dépôt." : "Nouveau secret généré : mettez à jour le webhook."); if (s) update(s); }}
+            onGitRemove={async () => { const s = await act("gitrm", () => sitesApi.removeGit(site.id), "Dépôt déconnecté : le site reste en ligne."); if (s) update(s); }}
+            onPoll={update}
             onSettings={async (b) => { const s = await act("set", () => sitesApi.settings(site.id, b), "Réglages enregistrés."); if (s) update(s); }}
             onRemove={async () => { const r = await act("rm", () => sitesApi.remove(site.id)); if (r) { setSel(null); setSite(null); void refresh(); show("Site supprimé."); } }}
           />
@@ -330,6 +336,8 @@ type DetailProps = {
   onDeploy: (blob: Blob, note: string) => void | Promise<void>; onRollback: (n: number) => void | Promise<void>; onEnv: (env: Record<string, string>) => void | Promise<void>;
   onAddDomain: (d: string) => void | Promise<void>; onVerifyDomain: (d: string) => void | Promise<void>; onRemoveDomain: (d: string) => void | Promise<void>;
   onSettings: (b: { name?: string; spa?: boolean }) => void | Promise<void>; onRemove: () => void | Promise<void>;
+  onGitSave: (b: { url: string; branch: string; dir: string; auto: boolean }) => void | Promise<void>; onGitDeploy: () => void | Promise<void>;
+  onGitRegen: (b: { key?: boolean; secret?: boolean }) => void | Promise<void>; onGitRemove: () => void | Promise<void>; onPoll: (s: SiteView) => void;
 };
 
 function SiteDetail(p: DetailProps) {
@@ -361,6 +369,9 @@ function SiteDetail(p: DetailProps) {
             <div className="block-card"><h2>Historique des versions</h2><Versions site={site} disabled={!canWrite} onRollback={p.onRollback} /></div>
           </div>
         )}
+        {tab === "deploys" && (
+          <div className="block-card"><h2>Déploiement depuis Git</h2><GitPanel site={site} disabled={!canWrite} busy={p.busy} onSave={p.onGitSave} onDeploy={p.onGitDeploy} onRegen={p.onGitRegen} onRemove={p.onGitRemove} onPoll={p.onPoll} /></div>
+        )}
         {tab === "domains" && <div className="block-card"><h2>Domaines</h2><Domains site={site} max={plan.limits?.domains ?? 0} disabled={!canWrite} busy={p.busy === "dom"} onOffers={p.onOffers} onAdd={p.onAddDomain} onVerify={p.onVerifyDomain} onRemove={p.onRemoveDomain} /></div>}
         {tab === "env" && <div className="block-card"><h2>Variables d'environnement</h2><EnvEditor site={site} allowed={!!plan.limits?.env} disabled={!canWrite} onOffers={p.onOffers} onSave={p.onEnv} /></div>}
         {tab === "settings" && <Settings site={site} disabled={!canWrite} onSave={p.onSettings} onRemove={p.onRemove} />}
@@ -377,6 +388,7 @@ function Overview({ site, plan, live, onTab, canWrite }: DetailProps & { live: L
   const todo: { done: boolean; title: string; text: string; action?: { label: string; tab: Tab } }[] = [
     { done: true, title: "Site créé", text: `Adresse réservée : ${site.id}.${SITES_DOMAIN}` },
     { done: published, title: "Premier déploiement", text: published ? `Version ${site.currentVersion} en ligne.` : "Déposez votre dossier ou votre archive .zip.", action: published ? undefined : { label: "Publier", tab: "deploys" } },
+    { done: !!site.git, title: "Déploiement depuis Git", text: site.git ? `${site.git.url.replace(/^https:\/\//, "")} · branche ${site.git.branch}${site.git.auto ? " · automatique" : ""}` : "Reliez GitHub, GitLab ou Bitbucket : un push met le site à jour.", action: { label: site.git ? "Ouvrir" : "Connecter", tab: "deploys" } },
     { done: site.domains.some((d) => d.status === "verified"), title: "Domaine personnalisé", text: maxDomains ? "Utilisez votre propre nom de domaine." : "Disponible avec l'offre Pro.", action: maxDomains ? { label: "Ajouter", tab: "domains" } : undefined },
   ];
   return (
@@ -475,6 +487,86 @@ function Versions({ site, disabled, onRollback }: { site: SiteView; disabled: bo
         </li>
       ))}
     </ol>
+  );
+}
+
+/* ========================= Déploiement depuis Git (sans compilation) ========================= */
+function CopyRow({ label, value }: { label: string; value: string }) {
+  return <div className="git-copy"><span className="git-copy-l">{label}</span><code>{value}</code><CopyButton value={value} label="Copier" /></div>;
+}
+
+function GitPanel({ site, disabled, busy, onSave, onDeploy, onRegen, onRemove, onPoll }: {
+  site: SiteView; disabled: boolean; busy: string; onSave: (b: { url: string; branch: string; dir: string; auto: boolean }) => void | Promise<void>;
+  onDeploy: () => void | Promise<void>; onRegen: (b: { key?: boolean; secret?: boolean }) => void | Promise<void>; onRemove: () => void | Promise<void>; onPoll: (s: SiteView) => void;
+}) {
+  const g: SiteGit | null | undefined = site.git;
+  const [url, setUrl] = useState(g?.url ?? ""); const [branch, setBranch] = useState(g?.branch ?? "main"); const [dir, setDir] = useState(g?.dir ?? ""); const [auto, setAuto] = useState(g?.auto ?? true);
+  const [confirm, setConfirm] = useState<"" | "key" | "secret" | "remove">("");
+  useEffect(() => { setUrl(site.git?.url ?? ""); setBranch(site.git?.branch ?? "main"); setDir(site.git?.dir ?? ""); setAuto(site.git?.auto ?? true); }, [site.id, site.git?.url, site.git?.branch, site.git?.dir, site.git?.auto]);
+  const running = g?.status === "running";
+  useEffect(() => {
+    if (!running) return;
+    const t = window.setInterval(() => { sitesApi.get(site.id).then(onPoll).catch(() => undefined); }, 2500);
+    return () => window.clearInterval(t);
+  }, [running, site.id, onPoll]);
+  const urlErr = url.trim() ? repoUrlError(url) : "";
+  const cleanDir = dir.trim().replace(/^\/+|\/+$/g, "");
+  const changed = !g || g.url !== url.trim() || g.branch !== (branch.trim() || "main") || g.dir !== cleanDir || g.auto !== auto;
+  const step = (n: number) => (g?.private ? n + 1 : n);
+  return (
+    <div className="git">
+      <p className="muted">Reliez un dépôt <b>GitHub, GitLab, Bitbucket</b> ou Gitea : à chaque déploiement, nous récupérons la branche choisie et publions ses fichiers <b>tels quels</b>. Aucune compilation n'est faite sur le serveur : si votre site doit être compilé, poussez le dossier généré (par exemple <code>dist</code>).</p>
+      <label>Adresse du dépôt<input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://github.com/compte/mon-site.git" disabled={disabled} aria-invalid={!!urlErr} /></label>
+      {urlErr && <p className="field-err">{urlErr}</p>}
+      {url.trim() && !urlErr && <p className="muted small">{isSshRepo(url) ? "Dépôt privé (SSH) : une clé de déploiement sera générée, à ajouter en lecture seule dans les réglages du dépôt." : "Dépôt public (HTTPS). Pour un dépôt privé, utilisez l'adresse SSH (git@github.com:compte/depot.git)."}</p>}
+      <div className="two-col">
+        <label>Branche<input value={branch} onChange={(e) => setBranch(e.target.value)} disabled={disabled} /></label>
+        <label>Dossier à publier <span className="muted">(facultatif)</span><input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="racine du dépôt, ou dist, public…" disabled={disabled} /></label>
+      </div>
+      <label className="switch-row">
+        <span><b>Déploiement automatique</b><small>Chaque <code>git push</code> sur la branche met le site à jour (webhook).</small></span>
+        <span className="switch"><input type="checkbox" role="switch" checked={auto} onChange={(e) => setAuto(e.target.checked)} disabled={disabled} /><i /></span>
+      </label>
+      <div className="row-actions">
+        <button type="button" className="primary" disabled={disabled || busy === "git" || !url.trim() || !!urlErr || !changed} onClick={() => void onSave({ url: url.trim(), branch: branch.trim() || "main", dir: dir.trim(), auto })}>{busy === "git" ? "Enregistrement…" : g ? "Enregistrer les changements" : "Connecter le dépôt"}</button>
+        {g && <button type="button" disabled={disabled} onClick={() => setConfirm("remove")}><Icon name="trash" size={16} />Déconnecter</button>}
+      </div>
+      {confirm === "remove" && <p className="alert warn"><Icon name="alert" size={18} /><span>Déconnecter ce dépôt ? Le site reste en ligne. <button type="button" className="link" onClick={() => { setConfirm(""); void onRemove(); }}>Oui, déconnecter</button> · <button type="button" className="link" onClick={() => setConfirm("")}>Annuler</button></span></p>}
+      {g && (
+        <>
+          <h3 className="sub">Déployer</h3>
+          <div className={`git-status git-${g.status}`} role="status">
+            <b>{GIT_STATUS_LABEL[g.status] ?? g.status}</b>
+            {g.message && <span> — {g.message}</span>}
+            {g.status === "ok" && <span className="muted"> {g.version ? `Version ${g.version}` : ""}{g.commit ? ` · ${g.commit.slice(0, 7)}` : ""}{g.subject ? ` « ${g.subject} »` : ""}{g.trigger ? ` (${g.trigger})` : ""}</span>}
+            {g.finishedAt && <small className="muted"> {when(g.finishedAt)}</small>}
+          </div>
+          <div className="row-actions"><button type="button" className="primary" disabled={disabled || running || changed} onClick={() => void onDeploy()}><Icon name="rotate" size={17} />{running ? "Déploiement en cours…" : "Déployer maintenant"}</button></div>
+          {changed && <p className="muted small">Enregistrez vos changements avant de déployer.</p>}
+          {g.private && g.deployKey && (
+            <>
+              <h3 className="sub">1. Clé de déploiement (dépôt privé)</h3>
+              <p className="muted">Dans GitHub : dépôt → Settings → Deploy keys → Add deploy key. Collez cette clé et laissez « Allow write access » décoché.</p>
+              <CopyRow label="Clé publique" value={g.deployKey} />
+              <div className="row-actions">
+                <button type="button" disabled={disabled} onClick={() => setConfirm("key")}>Régénérer la clé</button>
+              </div>
+              {confirm === "key" && <p className="alert warn"><Icon name="alert" size={18} /><span>L'ancienne clé cessera de fonctionner. <button type="button" className="link" onClick={() => { setConfirm(""); void onRegen({ key: true }); }}>Générer une nouvelle clé</button> · <button type="button" className="link" onClick={() => setConfirm("")}>Annuler</button></span></p>}
+            </>
+          )}
+          {g.auto && (
+            <>
+              <h3 className="sub">{step(1)}. Webhook (déploiement automatique)</h3>
+              <p className="muted">Dans le dépôt → Settings → Webhooks → Add webhook : collez l'adresse, choisissez « application/json », collez le secret, événement « Just the push event ».</p>
+              <CopyRow label="Adresse" value={hookUrl(site.id)} />
+              <CopyRow label="Secret" value={g.webhook.secret} />
+              <div className="row-actions"><button type="button" disabled={disabled} onClick={() => setConfirm("secret")}>Régénérer le secret</button></div>
+              {confirm === "secret" && <p className="alert warn"><Icon name="alert" size={18} /><span>Pensez à mettre à jour le webhook ensuite. <button type="button" className="link" onClick={() => { setConfirm(""); void onRegen({ secret: true }); }}>Générer un nouveau secret</button> · <button type="button" className="link" onClick={() => setConfirm("")}>Annuler</button></span></p>}
+            </>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

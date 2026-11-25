@@ -12,9 +12,13 @@ export type SitePlan = {
 };
 export type SiteVersion = { n: number; createdAt: string; size: number; files: number; note: string; current: boolean };
 export type SiteDomain = { domain: string; status: "pending" | "verified"; tls: "none" | "pending" | "active" | "failed"; createdAt: string; target?: { a: string | null; cname: string }; verification?: { txt: { name: string; value: string }; cname: { name: string; value: string }; note: string } };
+export type SiteGit = {
+  url: string; branch: string; dir: string; auto: boolean; private: boolean; deployKey: string | null; webhook: { url: string; secret: string };
+  status: "idle" | "running" | "ok" | "error"; message: string; commit: string; subject: string; version: number | null; trigger: string; startedAt: string | null; finishedAt: string | null;
+};
 export type SiteView = {
   id: string; name: string; url: string; settings: { spa?: boolean }; currentVersion: number | null; versions: SiteVersion[]; storageBytes: number;
-  domains: SiteDomain[]; env: Record<string, string>; createdAt: string; updatedAt: string; deployed?: { version: number; files: number; bytes: number; ignored: number };
+  domains: SiteDomain[]; env: Record<string, string>; git?: SiteGit | null; createdAt: string; updatedAt: string; deployed?: { version: number; files: number; bytes: number; ignored: number };
 };
 export type SiteRow = { id: string; name: string; url: string; currentVersion: number | null; storageBytes: number; domains: string[]; updatedAt: string };
 export type SiteQuote = { plan: string; billing: string; months: number; fullCents: number; creditCents: number; amountCents: number };
@@ -32,6 +36,10 @@ export const sitesApi = {
   deploy: (id: string, archive: Blob, note: string) => callSites<SiteView>("PUT", `/${enc(id)}/deploy${note ? `?note=${enc(note)}` : ""}`, { raw: archive }),
   rollback: (id: string, version: number) => callSites<SiteView>("POST", `/${enc(id)}/rollback`, { json: { version } }),
   setEnv: (id: string, env: Record<string, string>) => callSites<SiteView>("PUT", `/${enc(id)}/env`, { json: env }),
+  setGit: (id: string, b: { url: string; branch?: string; dir?: string; auto?: boolean }) => callSites<SiteView>("PUT", `/${enc(id)}/git`, { json: b }),
+  deployGit: (id: string) => callSites<SiteView>("POST", `/${enc(id)}/git/deploy`, { json: {} }),
+  regenGit: (id: string, b: { key?: boolean; secret?: boolean }) => callSites<SiteView>("POST", `/${enc(id)}/git/regenerate`, { json: b }),
+  removeGit: (id: string) => callSites<SiteView>("DELETE", `/${enc(id)}/git`),
   addDomain: (id: string, domain: string) => callSites<SiteView>("POST", `/${enc(id)}/domains`, { json: { domain } }),
   verifyDomain: (id: string, domain: string) => callSites<{ domain: string; verified: boolean; method: string | null; site: SiteView }>("POST", `/${enc(id)}/domains/${enc(domain)}/verify`, { json: {} }),
   removeDomain: (id: string, domain: string) => callSites<SiteView>("DELETE", `/${enc(id)}/domains/${enc(domain)}`),
